@@ -17,7 +17,8 @@ Core Python code lives in `nanobot/`. Key modules include `agent/` for the main 
 
 ## Build, Test, and Development Commands
 
-- `uv sync --extra dev`: install Python dependencies, test tools, and optional Matrix extras.
+- `uv sync --extra dev`: install Python dependencies and core local dev tools (`pytest`, `pytest-asyncio`, `ruff`).
+- `uv sync --extra dev --extra matrix`: additionally install Matrix-related extras when working on Matrix support.
 - `uv run pytest -q`: run the full test suite.
 - `uv run pytest -q tests/test_session_policy.py`: run a targeted test file during local iteration.
 - `uv run ruff check .`: run linting.
