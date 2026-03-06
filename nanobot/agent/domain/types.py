@@ -14,6 +14,15 @@ class DomainReplyMode(str, Enum):
     EVENT = "event"
 
 
+class DomainContextScope(str, Enum):
+    """How a domain agent scopes its local runtime context."""
+
+    PERSON = "person"
+    SESSION = "session"
+    SURFACE = "surface"
+    SYSTEM = "system"
+
+
 class DomainTrigger(str, Enum):
     """What initiated a domain-agent request."""
 
@@ -80,6 +89,16 @@ class DomainAgentResult:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class DomainAgentDescriptor:
+    """Static runtime contract exposed by a domain agent."""
+
+    name: str
+    supports_modes: tuple[DomainReplyMode, ...]
+    allowed_tools: tuple[str, ...] = ()
+    context_scope: DomainContextScope = DomainContextScope.PERSON
+
+
 @dataclass
 class NotificationDecision:
     """A routing decision for outbound delivery."""
@@ -101,5 +120,6 @@ class AsyncDomainJob:
     status: AsyncJobStatus = AsyncJobStatus.ACCEPTED
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
+    completed_at: datetime | None = None
     result: DomainAgentResult | None = None
     error: str | None = None

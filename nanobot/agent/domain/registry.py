@@ -2,12 +2,15 @@
 
 import asyncio
 import uuid
+from collections import deque
+from collections.abc import Iterable
 from datetime import datetime
 
 from nanobot.agent.domain.base import BaseDomainAgent
 from nanobot.agent.domain.types import (
     AsyncDomainJob,
     AsyncJobStatus,
+    DomainAgentDescriptor,
     DomainAgentRequest,
     DomainAgentResult,
     DomainReplyMode,
@@ -18,10 +21,14 @@ from nanobot.agent.domain.types import (
 class DomainAgentRegistry:
     """Register and invoke domain agents via a stable protocol."""
 
-    def __init__(self):
+    def __init__(self, agents: Iterable[BaseDomainAgent] | None = None):
         self._agents: dict[str, BaseDomainAgent] = {}
         self._jobs: dict[str, AsyncDomainJob] = {}
+        self._requests: dict[str, DomainAgentRequest] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._finished_job_ids: deque[str] = deque()
+        if agents:
+            self.register_many(agents)
 
     def register(self, agent: BaseDomainAgent) -> None:
         """Register a domain agent by name."""
@@ -31,6 +38,12 @@ class DomainAgentRegistry:
         if agent.name in self._agents:
             raise ValueError(f"Domain agent already registered: {agent.name}")
         self._agents[agent.name] = agent
+
+    def register_many(self, agents: Iterable[BaseDomainAgent]) -> None:
+        """Register multiple agents in a single composition step."""
+
+        for agent in agents:
+            self.register(agent)
 
     def get(self, name: str) -> BaseDomainAgent | None:
         """Return a registered agent if present."""
@@ -45,10 +58,20 @@ class DomainAgentRegistry:
             raise KeyError(f"Unknown domain agent: {name}")
         return agent
 
+    def describe(self, name: str) -> DomainAgentDescriptor:
+        """Return the runtime contract for a registered agent."""
+
+        return self.require(name).describe()
+
     def list_agents(self) -> list[str]:
         """Return registered domain-agent names."""
 
         return sorted(self._agents)
+
+    def list_descriptors(self) -> list[DomainAgentDescriptor]:
+        """Return runtime descriptors for all registered agents."""
+
+        return [self._agents[name].describe() for name in self.list_agents()]
 
     async def invoke_sync(self, request: DomainAgentRequest) -> DomainAgentResult:
         """Invoke a domain agent synchronously."""
@@ -82,6 +105,7 @@ class DomainAgentRegistry:
         job_id = str(uuid.uuid4())[:8]
         job = AsyncDomainJob(job_id=job_id, request_id=request.request_id, agent_name=agent.name)
         self._jobs[job_id] = job
+        self._requests[job_id] = request
         self._tasks[job_id] = asyncio.create_task(self._run_async_job(job_id, agent, request))
         return job
 
@@ -89,6 +113,31 @@ class DomainAgentRegistry:
         """Return async job state if present."""
 
         return self._jobs.get(job_id)
+
+    def list_jobs(self, status: AsyncJobStatus | None = None) -> list[AsyncDomainJob]:
+        """Return observed async jobs, optionally filtered by lifecycle state."""
+
+        jobs = list(self._jobs.values())
+        if status is not None:
+            jobs = [job for job in jobs if job.status is status]
+        return sorted(jobs, key=lambda job: job.created_at)
+
+    def consume_finished_jobs(self) -> list[AsyncDomainJob]:
+        """Drain terminal async jobs for downstream notification or inspection."""
+
+        finished: list[AsyncDomainJob] = []
+        while self._finished_job_ids:
+            job_id = self._finished_job_ids.popleft()
+            job = self._jobs.get(job_id)
+            if job is not None:
+                finished.append(job)
+        return finished
+
+
+    def request_for_job(self, job_id: str) -> DomainAgentRequest | None:
+        """Return the original async request for a job if present."""
+
+        return self._requests.get(job_id)
 
     async def wait_for_job(self, job_id: str) -> AsyncDomainJob:
         """Wait for an async job to finish and return its state."""
@@ -129,5 +178,8 @@ class DomainAgentRegistry:
                 error=str(exc),
             )
         finally:
-            job.updated_at = datetime.now()
+            timestamp = datetime.now()
+            job.updated_at = timestamp
+            job.completed_at = timestamp
+            self._finished_job_ids.append(job_id)
             self._tasks.pop(job_id, None)

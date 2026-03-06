@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from typing import Any
 
 from loguru import logger
@@ -12,6 +13,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Config
 from nanobot.identity import IdentityMapper, IdentityStore
+from nanobot.notifications import NotificationRouter
 from nanobot.routing import SessionPolicy, SessionPolicyStore
 
 
@@ -30,10 +32,15 @@ class ChannelManager:
         self.bus = bus
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
-        self.identity_mapper = IdentityMapper(IdentityStore(config.workspace_path))
+        self.identity_store = IdentityStore(config.workspace_path)
+        self.identity_mapper = IdentityMapper(self.identity_store)
         self.session_policy = SessionPolicy(SessionPolicyStore(config.workspace_path))
 
         self._init_channels()
+        self.notification_router = NotificationRouter(
+            self.identity_store,
+            deliverable_channels=set(self.channels),
+        )
 
     def _init_channels(self) -> None:
         """Initialize channels based on config."""
@@ -231,7 +238,7 @@ class ChannelManager:
             try:
                 msg = await asyncio.wait_for(
                     self.bus.consume_outbound(),
-                    timeout=1.0
+                    timeout=1.0,
                 )
 
                 if msg.metadata.get("_progress"):
@@ -240,19 +247,50 @@ class ChannelManager:
                     if not msg.metadata.get("_tool_hint") and not self.config.channels.send_progress:
                         continue
 
-                channel = self.channels.get(msg.channel)
+                routed = self._route_outbound_message(msg)
+                if routed is None:
+                    continue
+
+                channel = self.channels.get(routed.channel)
                 if channel:
                     try:
-                        await channel.send(msg)
+                        await channel.send(routed)
                     except Exception as e:
-                        logger.error("Error sending to {}: {}", msg.channel, e)
+                        logger.error("Error sending to {}: {}", routed.channel, e)
                 else:
-                    logger.warning("Unknown channel: {}", msg.channel)
+                    logger.warning("Unknown channel: {}", routed.channel)
 
             except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
                 break
+
+    def _route_outbound_message(self, msg: OutboundMessage) -> OutboundMessage | None:
+        """Apply notification routing before handing off to a channel sender."""
+
+        self.notification_router.set_deliverable_channels(set(self.channels))
+        decision = self.notification_router.route_outbound(msg)
+        notification = msg.metadata.get("notification", {}) if isinstance(msg.metadata, dict) else {}
+        routed_decision = notification.get("decision", {}) if isinstance(notification, dict) else {}
+
+        if decision is None:
+            if routed_decision.get("deliver") is False:
+                logger.warning(
+                    "Dropping outbound notification kind={} person_id={} reason={}",
+                    notification.get("kind"),
+                    notification.get("person_id"),
+                    routed_decision.get("reason", "notification rejected"),
+                )
+                return None
+            return msg
+
+        metadata = msg.metadata if isinstance(msg.metadata, dict) else {}
+        return replace(
+            msg,
+            channel=decision.target_channel,
+            chat_id=decision.target_chat_id,
+            metadata=metadata,
+        )
 
     def get_channel(self, name: str) -> BaseChannel | None:
         """Get a channel by name."""
@@ -263,7 +301,7 @@ class ChannelManager:
         return {
             name: {
                 "enabled": True,
-                "running": channel.is_running
+                "running": channel.is_running,
             }
             for name, channel in self.channels.items()
         }

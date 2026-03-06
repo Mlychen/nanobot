@@ -284,10 +284,26 @@ def _load_runtime_config(config: str | None = None, workspace: str | None = None
     return loaded
 
 
+def _domain_agent_factories():
+    """Return deferred domain-agent factories for the current runtime."""
+    from nanobot.agent.domain.gate_b_probe import create_gate_b_probe_agent
+
+    return (create_gate_b_probe_agent,)
+
+
+
+def _make_primary_orchestrator():
+    """Create the primary orchestrator from the WP04 runtime assembly entrypoint."""
+    from nanobot.agent.domain import create_domain_registry
+    from nanobot.agent.primary import PrimaryAgentOrchestrator
+
+    registry = create_domain_registry(factories=_domain_agent_factories())
+    return PrimaryAgentOrchestrator(registry)
+
+
 # ============================================================================
 # Gateway / Server
 # ============================================================================
-
 
 @app.command()
 def gateway(
@@ -297,6 +313,7 @@ def gateway(
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
     """Start the nanobot gateway."""
+    from nanobot.agent.domain import DomainTrigger
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
@@ -322,6 +339,7 @@ def gateway(
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_cron_dir() / "jobs.json"
     cron = CronService(cron_store_path)
+    primary_orchestrator = _make_primary_orchestrator()
 
     # Create agent with cron service
     agent = AgentLoop(
@@ -342,6 +360,7 @@ def gateway(
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        primary_orchestrator=primary_orchestrator,
     )
 
     # Set cron callback (needs agent)
@@ -361,12 +380,32 @@ def gateway(
         if isinstance(cron_tool, CronTool):
             cron_token = cron_tool.set_cron_context(True)
         try:
-            response = await agent.process_direct(
-                reminder_note,
-                session_key=f"cron:{job.id}",
-                channel=job.payload.channel or "cli",
-                chat_id=job.payload.to or "direct",
-            )
+            response = None
+            if agent.primary_orchestrator:
+                response = await agent.primary_orchestrator.handle_event(
+                    agent_name="scheduler" if job.payload.kind == "system_event" else None,
+                    goal=job.payload.message or reminder_note,
+                    trigger=DomainTrigger.CRON,
+                    channel=job.payload.channel or "cli",
+                    chat_id=job.payload.to or "direct",
+                    session_key=f"cron:{job.id}",
+                    surface_id=f"cron:{job.id}",
+                    metadata={
+                        "orchestrator": {
+                            "agent_name": "scheduler" if job.payload.kind == "system_event" else None,
+                            "trigger": DomainTrigger.CRON.value,
+                            "goal": job.payload.message or reminder_note,
+                        },
+                        "cron_job_id": job.id,
+                    },
+                )
+            if response is None:
+                response = await agent.process_direct(
+                    reminder_note,
+                    session_key=f"cron:{job.id}",
+                    channel=job.payload.channel or "cli",
+                    chat_id=job.payload.to or "direct",
+                )
         finally:
             if isinstance(cron_tool, CronTool) and cron_token is not None:
                 cron_tool.reset_cron_context(cron_token)
@@ -412,6 +451,26 @@ def gateway(
         async def _silent(*_args, **_kwargs):
             pass
 
+        if agent.primary_orchestrator:
+            response = await agent.primary_orchestrator.handle_event(
+                agent_name="scheduler",
+                goal=tasks,
+                trigger=DomainTrigger.HEARTBEAT,
+                channel=channel,
+                chat_id=chat_id,
+                session_key="heartbeat",
+                surface_id="heartbeat",
+                metadata={
+                    "orchestrator": {
+                        "agent_name": "scheduler",
+                        "trigger": DomainTrigger.HEARTBEAT.value,
+                        "goal": tasks,
+                    }
+                },
+            )
+            if response is not None:
+                return response
+
         return await agent.process_direct(
             tasks,
             session_key="heartbeat",
@@ -419,7 +478,6 @@ def gateway(
             chat_id=chat_id,
             on_progress=_silent,
         )
-
     async def on_heartbeat_notify(response: str) -> None:
         """Deliver a heartbeat response to the user's channel."""
         from nanobot.bus.events import OutboundMessage
@@ -489,6 +547,7 @@ def agent(
     """Interact with the agent directly."""
     from loguru import logger
 
+    from nanobot.agent.domain import DomainTrigger
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
     from nanobot.config.paths import get_cron_dir
@@ -508,6 +567,7 @@ def agent(
     # Create cron service for tool usage (no callback needed for CLI unless running)
     cron_store_path = get_cron_dir() / "jobs.json"
     cron = CronService(cron_store_path)
+    primary_orchestrator = _make_primary_orchestrator()
 
     if logs:
         logger.enable("nanobot")
@@ -531,6 +591,7 @@ def agent(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        primary_orchestrator=primary_orchestrator,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on
@@ -1009,3 +1070,15 @@ def _login_github_copilot() -> None:
 
 if __name__ == "__main__":
     app()
+
+
+
+
+
+
+
+
+
+
+
+

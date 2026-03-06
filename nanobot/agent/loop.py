@@ -28,6 +28,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
+    from nanobot.agent.primary import PrimaryAgentOrchestrator
     from nanobot.config.schema import ChannelsConfig, ExecToolConfig
     from nanobot.cron.service import CronService
 
@@ -65,6 +66,7 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        primary_orchestrator: PrimaryAgentOrchestrator | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
@@ -85,6 +87,7 @@ class AgentLoop:
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
+        self.primary_orchestrator = primary_orchestrator
         self.tools = ToolRegistry()
         self.subagents = SubagentManager(
             provider=provider,
@@ -177,6 +180,32 @@ class AgentLoop:
             return f'{tc.name}("{val[:40]}…")' if len(val) > 40 else f'{tc.name}("{val}")'
         return ", ".join(_fmt(tc) for tc in tool_calls)
 
+
+    @staticmethod
+    def _reply_metadata(
+        source_metadata: dict[str, Any] | None,
+        *,
+        origin_channel: str,
+        origin_chat_id: str,
+    ) -> dict[str, Any]:
+        """Attach standard reply notification metadata to an outbound message."""
+
+        metadata = dict(source_metadata or {})
+        identity = metadata.get("identity")
+        notification = metadata.get("notification") if isinstance(metadata.get("notification"), dict) else {}
+        if not isinstance(identity, dict):
+            identity = {}
+
+        notification = dict(notification)
+        notification.setdefault("kind", "reply")
+        notification.setdefault("person_id", metadata.get("person_id"))
+        notification.setdefault("origin_channel", origin_channel)
+        notification.setdefault("origin_chat_id", origin_chat_id)
+        notification.setdefault("trusted", bool(identity.get("trusted", False)))
+        if identity.get("surface_kind"):
+            notification.setdefault("surface_kind", identity["surface_kind"])
+        metadata["notification"] = notification
+        return metadata
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -266,6 +295,7 @@ class AgentLoop:
             try:
                 msg = await asyncio.wait_for(self.bus.consume_inbound(), timeout=1.0)
             except asyncio.TimeoutError:
+                await self._drain_primary_finished_jobs()
                 continue
 
             if msg.content.strip().lower() == "/stop":
@@ -274,6 +304,17 @@ class AgentLoop:
                 task = asyncio.create_task(self._dispatch(msg))
                 self._active_tasks.setdefault(msg.session_key, []).append(task)
                 task.add_done_callback(lambda t, k=msg.session_key: self._active_tasks.get(k, []) and self._active_tasks[k].remove(t) if t in self._active_tasks.get(k, []) else None)
+                await self._drain_primary_finished_jobs()
+
+
+    async def _drain_primary_finished_jobs(self) -> None:
+        """Publish finished async-job notifications exposed by the primary orchestrator."""
+
+        if not self.primary_orchestrator:
+            return
+
+        for outbound in self.primary_orchestrator.consume_finished_notifications():
+            await self.bus.publish_outbound(outbound)
 
     async def _handle_stop(self, msg: InboundMessage) -> None:
         """Cancel all active tasks and subagents for the session."""
@@ -288,7 +329,14 @@ class AgentLoop:
         total = cancelled + sub_cancelled
         content = f"⏹ Stopped {total} task(s)." if total else "No active task to stop."
         await self.bus.publish_outbound(OutboundMessage(
-            channel=msg.channel, chat_id=msg.chat_id, content=content,
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=content,
+            metadata=self._reply_metadata(
+                msg.metadata,
+                origin_channel=msg.channel,
+                origin_chat_id=msg.chat_id,
+            ),
         ))
 
     async def _dispatch(self, msg: InboundMessage) -> None:
@@ -300,8 +348,14 @@ class AgentLoop:
                     await self.bus.publish_outbound(response)
                 elif msg.channel == "cli":
                     await self.bus.publish_outbound(OutboundMessage(
-                        channel=msg.channel, chat_id=msg.chat_id,
-                        content="", metadata=msg.metadata or {},
+                        channel=msg.channel,
+                        chat_id=msg.chat_id,
+                        content="",
+                        metadata=self._reply_metadata(
+                            msg.metadata,
+                            origin_channel=msg.channel,
+                            origin_chat_id=msg.chat_id,
+                        ),
                     ))
             except asyncio.CancelledError:
                 logger.info("Task cancelled for session {}", msg.session_key)
@@ -309,8 +363,14 @@ class AgentLoop:
             except Exception:
                 logger.exception("Error processing message for session {}", msg.session_key)
                 await self.bus.publish_outbound(OutboundMessage(
-                    channel=msg.channel, chat_id=msg.chat_id,
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
                     content="Sorry, I encountered an error.",
+                    metadata=self._reply_metadata(
+                        msg.metadata,
+                        origin_channel=msg.channel,
+                        origin_chat_id=msg.chat_id,
+                    ),
                 ))
 
     async def close_mcp(self) -> None:
@@ -334,6 +394,13 @@ class AgentLoop:
         on_progress: Callable[[str], Awaitable[None]] | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
+        if self.primary_orchestrator:
+            orchestrated = await self.primary_orchestrator.handle_inbound(
+                msg,
+                on_progress=on_progress,
+            )
+            if orchestrated is not None:
+                return orchestrated
         # System messages: parse origin from chat_id ("channel:chat_id")
         if msg.channel == "system":
             channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id
@@ -350,8 +417,16 @@ class AgentLoop:
             final_content, _, all_msgs = await self._run_agent_loop(messages)
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
-            return OutboundMessage(channel=channel, chat_id=chat_id,
-                                  content=final_content or "Background task completed.")
+            return OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=final_content or "Background task completed.",
+                metadata=self._reply_metadata(
+                    msg.metadata,
+                    origin_channel=channel,
+                    origin_chat_id=chat_id,
+                ),
+            )
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
@@ -372,14 +447,26 @@ class AgentLoop:
                         temp.messages = list(snapshot)
                         if not await self._consolidate_memory(temp, archive_all=True):
                             return OutboundMessage(
-                                channel=msg.channel, chat_id=msg.chat_id,
+                                channel=msg.channel,
+                                chat_id=msg.chat_id,
                                 content="Memory archival failed, session not cleared. Please try again.",
+                                metadata=self._reply_metadata(
+                                    msg.metadata,
+                                    origin_channel=msg.channel,
+                                    origin_chat_id=msg.chat_id,
+                                ),
                             )
             except Exception:
                 logger.exception("/new archival failed for {}", session.key)
                 return OutboundMessage(
-                    channel=msg.channel, chat_id=msg.chat_id,
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
                     content="Memory archival failed, session not cleared. Please try again.",
+                    metadata=self._reply_metadata(
+                        msg.metadata,
+                        origin_channel=msg.channel,
+                        origin_chat_id=msg.chat_id,
+                    ),
                 )
             finally:
                 self._consolidating.discard(session.key)
@@ -387,11 +474,27 @@ class AgentLoop:
             session.clear()
             self.sessions.save(session)
             self.sessions.invalidate(session.key)
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="New session started.")
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="New session started.",
+                metadata=self._reply_metadata(
+                    msg.metadata,
+                    origin_channel=msg.channel,
+                    origin_chat_id=msg.chat_id,
+                ),
+            )
         if cmd == "/help":
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐈 nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands")
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="🐈 nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands",
+                metadata=self._reply_metadata(
+                    msg.metadata,
+                    origin_channel=msg.channel,
+                    origin_chat_id=msg.chat_id,
+                ),
+            )
 
         unconsolidated = len(session.messages) - session.last_consolidated
         if (unconsolidated >= self.memory_window and session.key not in self._consolidating):
@@ -429,7 +532,14 @@ class AgentLoop:
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
             await self.bus.publish_outbound(OutboundMessage(
-                channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=content,
+                metadata=self._reply_metadata(
+                    meta,
+                    origin_channel=msg.channel,
+                    origin_chat_id=msg.chat_id,
+                ),
             ))
 
         final_content, _, all_msgs = await self._run_agent_loop(
@@ -448,8 +558,14 @@ class AgentLoop:
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
         return OutboundMessage(
-            channel=msg.channel, chat_id=msg.chat_id, content=final_content,
-            metadata=msg.metadata or {},
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=final_content,
+            metadata=self._reply_metadata(
+                msg.metadata,
+                origin_channel=msg.channel,
+                origin_chat_id=msg.chat_id,
+            ),
         )
 
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
@@ -515,3 +631,7 @@ class AgentLoop:
         )
         response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""
+
+
+
+
