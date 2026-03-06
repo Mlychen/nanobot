@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>nanobot Architecture</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&family=Outfit:wght@300;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a24;
+            --fg-primary: #e8e8ec;
+            --fg-secondary: #8888a0;
+            --fg-muted: #55556a;
+            --accent-cyan: #00f5d4;
+            --accent-pink: #ff2e97;
+            --accent-yellow: #ffd000;
+            --accent-blue: #3b82f6;
+            --border: #2a2a3a;
+            --glow-cyan: rgba(0, 245, 212, 0.4);
+            --glow-pink: rgba(255, 46, 151, 0.4);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--fg-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Background grid pattern */
+        .bg-pattern {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(42, 42, 58, 0.3) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(42, 42, 58, 0.3) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .bg-glow {
+            position: fixed;
+            width: 600px;
+            height: 600px;
+            border-radius: 50%;
+            filter: blur(150px);
+            opacity: 0.15;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .bg-glow-1 {
+            top: -200px;
+            right: -100px;
+            background: var(--accent-cyan);
+        }
+
+        .bg-glow-2 {
+            bottom: -200px;
+            left: -100px;
+            background: var(--accent-pink);
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+            animation: fadeInDown 0.8s ease-out;
+        }
+
+        .logo {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 4px;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            margin-bottom: 16px;
+        }
+
+        .title {
+            font-size: clamp(48px, 8vw, 80px);
+            font-weight: 900;
+            letter-spacing: -2px;
+            line-height: 1;
+            margin-bottom: 16px;
+        }
+
+        .title span {
+            display: inline-block;
+            animation: fadeInUp 0.6s ease-out backwards;
+        }
+
+        .title span:nth-child(1) { animation-delay: 0.1s; color: var(--accent-cyan); }
+        .title span:nth-child(2) { animation-delay: 0.15s; }
+        .title span:nth-child(3) { animation-delay: 0.2s; }
+        .title span:nth-child(4) { animation-delay: 0.25s; }
+        .title span:nth-child(5) { animation-delay: 0.3s; }
+        .title span:nth-child(6) { animation-delay: 0.35s; }
+        .title span:nth-child(7) { animation-delay: 0.4s; color: var(--accent-pink); }
+
+        .subtitle {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            color: var(--fg-secondary);
+            letter-spacing: 1px;
+        }
+
+        /* Architecture Diagram */
+        .architecture {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 30px;
+            animation: fadeIn 1s ease-out 0.5s backwards;
+        }
+
+        @media (min-width: 1024px) {
+            .architecture {
+                grid-template-columns: 200px 1fr 200px;
+            }
+        }
+
+        /* Layer containers */
+        .layer {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .layer-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--fg-muted);
+            margin-bottom: 8px;
+            padding-left: 12px;
+            border-left: 2px solid var(--border);
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-pink));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: var(--accent-cyan);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 40px -10px var(--glow-cyan);
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card-icon {
+            font-size: 24px;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .card-title {
+            font-weight: 700;
+            font-size: 15px;
+            margin-bottom: 6px;
+        }
+
+        .card-desc {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--fg-secondary);
+            line-height: 1.5;
+        }
+
+        /* Center Flow Diagram */
+        .flow-container {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 40px 30px;
+            position: relative;
+            min-height: 500px;
+        }
+
+        .flow-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--fg-muted);
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        /* Flow nodes */
+        .flow-nodes {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .flow-node {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 24px;
+            text-align: center;
+            position: relative;
+            width: 100%;
+            max-width: 280px;
+            transition: all 0.3s ease;
+        }
+
+        .flow-node:hover {
+            border-color: var(--accent-cyan);
+        }
+
+        .flow-node.active {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 30px var(--glow-cyan);
+        }
+
+        .flow-node.active .flow-node-name {
+            color: var(--accent-cyan);
+        }
+
+        .flow-node-name {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 4px;
+            transition: color 0.3s ease;
+        }
+
+        .flow-node-desc {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: var(--fg-muted);
+        }
+
+        /* Flow arrows */
+        .flow-arrow {
+            width: 2px;
+            height: 30px;
+            background: var(--border);
+            position: relative;
+        }
+
+        .flow-arrow::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-top: 8px solid var(--border);
+        }
+
+        .flow-arrow.active {
+            background: var(--accent-cyan);
+            box-shadow: 0 0 10px var(--glow-cyan);
+        }
+
+        .flow-arrow.active::after {
+            border-top-color: var(--accent-cyan);
+        }
+
+        /* Data flow particles */
+        .particle {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background: var(--accent-cyan);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent-cyan);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Tool cards */
+        .tools-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+        .tool-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px;
+            text-align: center;
+            transition: all 0.2s ease;
+        }
+
+        .tool-card:hover {
+            border-color: var(--accent-pink);
+            transform: scale(1.02);
+        }
+
+        .tool-card-icon {
+            font-size: 20px;
+            margin-bottom: 8px;
+        }
+
+        .tool-card-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: var(--fg-secondary);
+        }
+
+        /* Providers section */
+        .providers-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 10px;
+        }
+
+        .provider-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
+            text-align: center;
+            transition: all 0.2s ease;
+        }
+
+        .provider-card:hover {
+            border-color: var(--accent-yellow);
+        }
+
+        .provider-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: var(--fg-secondary);
+        }
+
+        /* Status indicator */
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-cyan);
+            animation: pulse 2s infinite;
+        }
+
+        .status-text {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: var(--fg-muted);
+        }
+
+        /* Animations */
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        @keyframes flowPulse {
+            0%, 100% {
+                box-shadow: 0 0 0 0 var(--glow-cyan);
+            }
+            50% {
+                box-shadow: 0 0 20px 5px var(--glow-cyan);
+            }
+        }
+
+        /* Data flow animation */
+        .data-flow {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .data-packet {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background: var(--accent-cyan);
+            border-radius: 50%;
+            box-shadow: 0 0 15px var(--accent-cyan);
+            animation: dataPacket 3s infinite;
+        }
+
+        @keyframes dataPacket {
+            0% {
+                top: 0;
+                left: 50%;
+                transform: translateX(-50%);
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                top: 100%;
+                left: 50%;
+                transform: translateX(-50%);
+                opacity: 0;
+            }
+        }
+
+        /* Code block */
+        .code-block {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px;
+            margin-top: 16px;
+            overflow-x: auto;
+        }
+
+        .code-block pre {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--fg-secondary);
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        .code-block .keyword {
+            color: var(--accent-pink);
+        }
+
+        .code-block .string {
+            color: var(--accent-cyan);
+        }
+
+        .code-block .comment {
+            color: var(--fg-muted);
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            margin-top: 60px;
+            padding-top: 40px;
+            border-top: 1px solid var(--border);
+        }
+
+        .footer-text {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--fg-muted);
+        }
+
+        .footer-text span {
+            color: var(--accent-cyan);
+        }
+
+        /* Interactive demo */
+        .demo-button {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+            border: none;
+            border-radius: 6px;
+            padding: 12px 24px;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--bg-primary);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+
+        .demo-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px -10px var(--glow-cyan);
+        }
+
+        /* Message flow animation */
+        .message-demo {
+            margin-top: 30px;
+            padding: 20px;
+            background: var(--bg-primary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .message-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 16px;
+            opacity: 0;
+            transform: translateX(-20px);
+            transition: all 0.4s ease;
+        }
+
+        .message-item.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .message-avatar.user {
+            background: var(--accent-pink);
+        }
+
+        .message-avatar.bot {
+            background: var(--accent-cyan);
+        }
+
+        .message-content {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            line-height: 1.5;
+        }
+
+        .message-content .tool-call {
+            color: var(--accent-yellow);
+        }
+
+        .message-content .tool-result {
+            color: var(--accent-cyan);
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-pattern"></div>
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+
+    <div class="container">
+        <header class="header">
+            <div class="logo">// Architecture Overview</div>
+            <h1 class="title">
+                <span>n</span><span>a</span><span>n</span><span>o</span><span>b</span><span>o</span><span>t</span>
+            </h1>
+            <p class="subtitle">Ultra-lightweight personal AI assistant framework</p>
+        </header>
+
+        <div class="architecture">
+            <!-- Channels Layer -->
+            <div class="layer">
+                <div class="layer-label">Channels</div>
+
+                <div class="card" data-channel="telegram">
+                    <span class="card-icon">📱</span>
+                    <div class="card-title">Telegram</div>
+                    <div class="card-desc">Bot API via polling<br>WebSocket support</div>
+                </div>
+
+                <div class="card" data-channel="discord">
+                    <span class="card-icon">🎮</span>
+                    <div class="card-title">Discord</div>
+                    <div class="card-desc">Gateway WebSocket<br>Message intents</div>
+                </div>
+
+                <div class="card" data-channel="slack">
+                    <span class="card-icon">💼</span>
+                    <div class="card-title">Slack</div>
+                    <div class="card-desc">Socket Mode<br>App mentions</div>
+                </div>
+
+                <div class="card" data-channel="feishu">
+                    <span class="card-icon">🪽</span>
+                    <div class="card-title">Feishu</div>
+                    <div class="card-desc">WebSocket long conn<br>Event subscription</div>
+                </div>
+
+                <div class="card" data-channel="whatsapp">
+                    <span class="card-icon">💬</span>
+                    <div class="card-title">WhatsApp</div>
+                    <div class="card-desc">Bridge WebSocket<br>QR pairing</div>
+                </div>
+            </div>
+
+            <!-- Center Flow -->
+            <div class="flow-container">
+                <div class="flow-title">Message Flow</div>
+
+                <div class="flow-nodes">
+                    <div class="flow-node" id="node-inbound">
+                        <div class="flow-node-name">InboundMessage</div>
+                        <div class="flow-node-desc">channel • sender_id • content</div>
+                    </div>
+
+                    <div class="flow-arrow" id="arrow-1"></div>
+
+                    <div class="flow-node" id="node-bus">
+                        <div class="flow-node-name">MessageBus</div>
+                        <div class="flow-node-desc">Async queue routing</div>
+                    </div>
+
+                    <div class="flow-arrow" id="arrow-2"></div>
+
+                    <div class="flow-node" id="node-agent">
+                        <div class="flow-node-name">AgentLoop</div>
+                        <div class="flow-node-desc">build_prompts → llm_call</div>
+                    </div>
+
+                    <div class="flow-arrow" id="arrow-3"></div>
+
+                    <div class="flow-node" id="node-tools">
+                        <div class="flow-node-name">ToolRegistry</div>
+                        <div class="flow-node-desc">execute tools → get results</div>
+                    </div>
+
+                    <div class="flow-arrow" id="arrow-4"></div>
+
+                    <div class="flow-node" id="node-outbound">
+                        <div class="flow-node-name">OutboundMessage</div>
+                        <div class="flow-node-desc">response → channel</div>
+                    </div>
+                </div>
+
+                <button class="demo-button" onclick="startDemo()">
+                    ▶ Simulate Message Flow
+                </button>
+
+                <div class="message-demo" id="message-demo">
+                    <div class="message-item" id="msg-1">
+                        <div class="message-avatar user">👤</div>
+                        <div class="message-content">
+                            What's the weather in Beijing?
+                        </div>
+                    </div>
+                    <div class="message-item" id="msg-2">
+                        <div class="message-avatar bot">🤖</div>
+                        <div class="message-content">
+                            <span class="tool-call">→ web_search("Beijing weather")</span>
+                        </div>
+                    </div>
+                    <div class="message-item" id="msg-3">
+                        <div class="message-avatar bot">🤖</div>
+                        <div class="message-content">
+                            <span class="tool-result">← "Beijing: Sunny, 25°C, clear skies..."</span>
+                        </div>
+                    </div>
+                    <div class="message-item" id="msg-4">
+                        <div class="message-avatar bot">🤖</div>
+                        <div class="message-content">
+                            Beijing is currently sunny with a temperature of 25°C and clear skies. Perfect weather for outdoor activities!
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tools & Providers Layer -->
+            <div class="layer">
+                <div class="layer-label">Tools</div>
+
+                <div class="tools-grid">
+                    <div class="tool-card">
+                        <div class="tool-card-icon">⚡</div>
+                        <div class="tool-card-name">shell</div>
+                    </div>
+                    <div class="tool-card">
+                        <div class="tool-card-icon">📁</div>
+                        <div class="tool-card-name">filesystem</div>
+                    </div>
+                    <div class="tool-card">
+                        <div class="tool-card-icon">🔍</div>
+                        <div class="tool-card-name">web_search</div>
+                    </div>
+                    <div class="tool-card">
+                        <div class="tool-card-icon">🔌</div>
+                        <div class="tool-card-name">mcp</div>
+                    </div>
+                    <div class="tool-card">
+                        <div class="tool-card-icon">🚀</div>
+                        <div class="tool-card-name">spawn</div>
+                    </div>
+                    <div class="tool-card">
+                        <div class="tool-card-icon">⏰</div>
+                        <div class="tool-card-name">cron</div>
+                    </div>
+                </div>
+
+                <div class="layer-label" style="margin-top: 30px;">Providers</div>
+
+                <div class="providers-grid">
+                    <div class="provider-card">
+                        <div class="provider-name">OpenRouter</div>
+                    </div>
+                    <div class="provider-card">
+                        <div class="provider-name">Anthropic</div>
+                    </div>
+                    <div class="provider-card">
+                        <div class="provider-name">OpenAI</div>
+                    </div>
+                    <div class="provider-card">
+                        <div class="provider-name">DeepSeek</div>
+                    </div>
+                    <div class="provider-card">
+                        <div class="provider-name">Gemini</div>
+                    </div>
+                    <div class="provider-card">
+                        <div class="provider-name">vLLM</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top: 20px;">
+                    <div class="card-title">ProviderRegistry</div>
+                    <div class="card-desc">Single source of truth for LLM metadata</div>
+                    <div class="code-block">
+                        <pre><span class="keyword">PROVIDERS</span> = (
+  ProviderSpec(
+    name=<span class="string">"openrouter"</span>,
+    keywords=(<span class="string">"openrouter"</span>,),
+    env_key=<span class="string">"OPENROUTER_API_KEY"</span>,
+    <span class="comment"># ...</span>
+  ),
+  <span class="comment"># Add new provider here</span>
+)</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p class="footer-text">
+                <span>~4,000</span> lines of core agent code •
+                <span>99%</span> smaller than Clawdbot •
+                <span>MIT</span> License
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // Animate flow nodes sequentially
+        function animateFlow() {
+            const nodes = ['node-inbound', 'node-bus', 'node-agent', 'node-tools', 'node-outbound'];
+            const arrows = ['arrow-1', 'arrow-2', 'arrow-3', 'arrow-4'];
+
+            let delay = 0;
+
+            nodes.forEach((nodeId, index) => {
+                setTimeout(() => {
+                    const node = document.getElementById(nodeId);
+                    node.classList.add('active');
+
+                    // Activate arrow after node
+                    if (index < arrows.length) {
+                        setTimeout(() => {
+                            document.getElementById(arrows[index]).classList.add('active');
+                        }, 200);
+                    }
+
+                    // Deactivate after a delay
+                    setTimeout(() => {
+                        node.classList.remove('active');
+                        if (index < arrows.length) {
+                            document.getElementById(arrows[index]).classList.remove('active');
+                        }
+                    }, 1500);
+                }, delay);
+
+                delay += 400;
+            });
+        }
+
+        // Demo message flow
+        function startDemo() {
+            // Reset
+            document.querySelectorAll('.message-item').forEach(el => {
+                el.classList.remove('visible');
+            });
+            document.querySelectorAll('.flow-node, .flow-arrow').forEach(el => {
+                el.classList.remove('active');
+            });
+
+            // Animate flow
+            animateFlow();
+
+            // Show messages with delay
+            const messages = ['msg-1', 'msg-2', 'msg-3', 'msg-4'];
+            messages.forEach((msgId, index) => {
+                setTimeout(() => {
+                    document.getElementById(msgId).classList.add('visible');
+                }, 800 + (index * 600));
+            });
+        }
+
+        // Card hover effects
+        document.querySelectorAll('.card[data-channel]').forEach(card => {
+            card.addEventListener('mouseenter', function() {
+                this.style.borderColor = 'var(--accent-pink)';
+                this.style.boxShadow = '0 10px 40px -10px var(--glow-pink)';
+            });
+            card.addEventListener('mouseleave', function() {
+                this.style.borderColor = '';
+                this.style.boxShadow = '';
+            });
+        });
+
+        // Auto-start demo after page load
+        setTimeout(() => {
+            startDemo();
+        }, 1500);
+    </script>
+</body>
+</html>

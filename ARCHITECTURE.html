@@ -1,0 +1,1839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>nanobot - Architecture Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            /* Light theme - eye-friendly colors */
+            --bg-primary: #faf9f6;
+            --bg-secondary: #f5f5f7;
+            --bg-tertiary: #f0f0f2;
+            --bg-card: #ffffff;
+            --border-color: #d0d0d5;
+            --border-light: #e0e0e0;
+            --text-primary: #333333;
+            --text-secondary: #4a4a4a;
+            --text-muted: #808080;
+            --text-light: #666666;
+            /* Softened accent colors */
+            --accent-channel: #d88080;
+            --accent-bus: #5fb3ac;
+            --accent-agent: #6fa3d6;
+            --accent-tools: #7cb37f;
+            --accent-providers: #b39ddb;
+            /* Soft glow effects */
+            --glow-channel: rgba(216, 128, 128, 0.2);
+            --glow-bus: rgba(95, 179, 172, 0.2);
+            --glow-agent: rgba(111, 163, 214, 0.2);
+            --glow-tools: rgba(124, 179, 127, 0.2);
+            --glow-providers: rgba(179, 157, 219, 0.2);
+            /* Shadows */
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+            --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Consolas', monospace;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, var(--accent-channel), var(--accent-bus), var(--accent-agent), var(--accent-tools), var(--accent-providers));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        /* Architecture Overview Section */
+        .section {
+            margin-bottom: 60px;
+        }
+
+        .section-title {
+            font-size: 1.8rem;
+            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 30px;
+            background: linear-gradient(180deg, var(--accent-channel), var(--accent-providers));
+            border-radius: 2px;
+        }
+
+        /* Layer Stack */
+        .layer-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 40px;
+        }
+
+        .layer {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px 30px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .layer::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+        }
+
+        .layer:hover {
+            box-shadow: var(--shadow-md);
+        }
+
+        .layer-channel { border-color: var(--accent-channel); }
+        .layer-channel::before { background: var(--accent-channel); }
+        .layer-channel:hover { box-shadow: 0 0 20px var(--glow-channel); }
+
+        .layer-bus { border-color: var(--accent-bus); }
+        .layer-bus::before { background: var(--accent-bus); }
+        .layer-bus:hover { box-shadow: 0 0 20px var(--glow-bus); }
+
+        .layer-agent { border-color: var(--accent-agent); }
+        .layer-agent::before { background: var(--accent-agent); }
+        .layer-agent:hover { box-shadow: 0 0 20px var(--glow-agent); }
+
+        .layer-tools { border-color: var(--accent-tools); }
+        .layer-tools::before { background: var(--accent-tools); }
+        .layer-tools:hover { box-shadow: 0 0 20px var(--glow-tools); }
+
+        .layer-providers { border-color: var(--accent-providers); }
+        .layer-providers::before { background: var(--accent-providers); }
+        .layer-providers:hover { box-shadow: 0 0 20px var(--glow-providers); }
+
+        .layer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .layer-title {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .layer-icon {
+            font-size: 1.5rem;
+        }
+
+        .layer-name {
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+
+        .layer-desc {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-top: 5px;
+        }
+
+        .layer-arrow {
+            font-size: 1.5rem;
+            color: var(--text-muted);
+            transition: transform 0.3s ease;
+            cursor: pointer;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+
+        .layer-arrow:hover {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .layer.expanded .layer-arrow {
+            transform: rotate(180deg);
+        }
+
+        .layer-details {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s ease;
+        }
+
+        .layer.expanded .layer-details {
+            max-height: 2000px;
+            margin-top: 25px;
+            padding-top: 25px;
+            border-top: 1px solid var(--border-light);
+        }
+
+        /* Grid layouts */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        /* Cards - Now Expandable */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 18px;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .card:hover {
+            border-color: var(--accent-agent);
+            box-shadow: var(--shadow-md);
+        }
+
+        .card.expanded {
+            border-color: var(--accent-agent);
+            box-shadow: var(--shadow-md);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .card-title {
+            font-size: 1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-primary);
+        }
+
+        .card-arrow {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            transition: transform 0.3s ease;
+            padding: 4px;
+            border-radius: 4px;
+        }
+
+        .card-arrow:hover {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .card.expanded .card-arrow {
+            transform: rotate(180deg);
+        }
+
+        .card-content {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .card-details {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s ease;
+            margin-top: 0;
+            padding-top: 0;
+        }
+
+        .card.expanded .card-details {
+            max-height: 800px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid var(--border-light);
+        }
+
+        .card-detail-item {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 12px;
+            font-size: 0.85rem;
+        }
+
+        .card-detail-label {
+            font-weight: 600;
+            color: var(--text-primary);
+            min-width: 80px;
+            flex-shrink: 0;
+        }
+
+        .card-detail-value {
+            color: var(--text-secondary);
+        }
+
+        .card-summary {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-bottom: 0;
+        }
+
+        .card.expanded .card-summary {
+            display: none;
+        }
+
+        /* Code blocks */
+        .code-block {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-x: auto;
+            margin-top: 15px;
+        }
+
+        .code-block pre {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        .code-block code {
+            color: var(--text-primary);
+        }
+
+        /* Soft syntax highlighting for light theme */
+        .code-keyword { color: #a626a4; }
+        .code-string { color: #50a14f; }
+        .code-function { color: #4078f2; }
+        .code-comment { color: #a0a1a7; font-style: italic; }
+        .code-class { color: #986801; }
+        .code-decorator { color: #e45649; }
+        .code-operator { color: #4078f2; }
+        .code-number { color: #986801; }
+
+        /* Data Flow Animation Section */
+        .flow-container {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 40px;
+            position: relative;
+        }
+
+        .flow-layers {
+            display: flex;
+            flex-direction: column;
+            gap: 60px;
+            position: relative;
+            padding: 40px 0;
+        }
+
+        .flow-layer {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 25px 40px;
+            background: var(--bg-card);
+            border-radius: 10px;
+            border: 2px solid var(--border-color);
+            font-weight: 600;
+            min-width: 250px;
+            text-align: center;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .flow-layer.active {
+            border-color: var(--accent-agent);
+            box-shadow: 0 0 20px var(--glow-agent);
+            transform: scale(1.05);
+        }
+
+        .flow-layer .layer-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .flow-arrows {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+        }
+
+        .flow-arrow {
+            width: 4px;
+            height: 60px;
+            background: linear-gradient(180deg, var(--border-color), var(--text-muted));
+            position: relative;
+            transition: all 0.5s ease;
+        }
+
+        .flow-arrow::after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-top: 10px solid var(--text-muted);
+            transition: all 0.5s ease;
+        }
+
+        .flow-arrow.active {
+            background: linear-gradient(180deg, var(--accent-bus), var(--accent-agent));
+        }
+
+        .flow-arrow.active::after {
+            border-top-color: var(--accent-agent);
+        }
+
+        /* Message packet animation */
+        .message-packet {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: var(--accent-agent);
+            border-radius: 50%;
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            box-shadow: 0 0 20px var(--glow-agent);
+            z-index: 10;
+        }
+
+        .message-packet::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 12px;
+            height: 12px;
+            background: white;
+            border-radius: 50%;
+        }
+
+        .message-packet.inbound {
+            background: var(--accent-channel);
+            box-shadow: 0 0 20px var(--glow-channel);
+        }
+
+        .message-packet.outbound {
+            background: var(--accent-tools);
+            box-shadow: 0 0 20px var(--glow-tools);
+        }
+
+        /* Controls */
+        .flow-controls {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-agent), var(--accent-bus));
+            color: #ffffff;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(111, 163, 214, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent-agent);
+            background: var(--bg-tertiary);
+        }
+
+        /* Flow diagram */
+        .flow-diagram {
+            margin-top: 40px;
+        }
+
+        .flow-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 20px;
+            margin-bottom: 25px;
+            padding: 20px;
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+            border-left: 4px solid var(--border-color);
+            transition: all 0.3s ease;
+        }
+
+        .flow-step:hover {
+            border-left-color: var(--accent-agent);
+            background: var(--bg-secondary);
+        }
+
+        .flow-step-number {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--bg-primary);
+            border: 2px solid var(--accent-agent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: var(--accent-agent);
+            flex-shrink: 0;
+        }
+
+        .flow-step-content h4 {
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .flow-step-content p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Tags */
+        .tags {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .tag {
+            padding: 4px 12px;
+            background: var(--bg-secondary);
+            border-radius: 20px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+            transition: all 0.2s ease;
+        }
+
+        .tag:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .tag-channel { color: var(--accent-channel); border-color: var(--accent-channel); }
+        .tag-bus { color: var(--accent-bus); border-color: var(--accent-bus); }
+        .tag-agent { color: var(--accent-agent); border-color: var(--accent-agent); }
+        .tag-tools { color: var(--accent-tools); border-color: var(--accent-tools); }
+        .tag-providers { color: var(--accent-providers); border-color: var(--accent-providers); }
+
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 20px;
+            background: var(--bg-card);
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-md);
+            border-color: var(--accent-agent);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent-agent);
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+
+        /* Inheritance diagram */
+        .inheritance-tree {
+            margin-top: 20px;
+            padding-left: 20px;
+        }
+
+        .inheritance-node {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 10px 15px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            margin-bottom: 10px;
+            border: 1px solid var(--border-color);
+        }
+
+        .inheritance-node.base {
+            border-color: var(--accent-agent);
+            background: rgba(111, 163, 214, 0.1);
+        }
+
+        .inheritance-line {
+            width: 20px;
+            height: 2px;
+            background: var(--border-color);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.8rem;
+            }
+
+            .layer-stack {
+                gap: 5px;
+            }
+
+            .layer {
+                padding: 15px 20px;
+            }
+
+            .flow-container {
+                padding: 20px;
+            }
+
+            .flow-layers {
+                gap: 40px;
+            }
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        @keyframes flowDown {
+            0% {
+                top: 0;
+                opacity: 1;
+            }
+            100% {
+                top: calc(100% - 30px);
+                opacity: 0;
+            }
+        }
+
+        @keyframes flowUp {
+            0% {
+                top: calc(100% - 30px);
+                opacity: 1;
+            }
+            100% {
+                top: 0;
+                opacity: 0;
+            }
+        }
+
+        .animating .message-packet.inbound {
+            animation: flowDown 2s ease-in-out;
+            opacity: 1;
+        }
+
+        .animating .message-packet.outbound {
+            animation: flowUp 2s ease-in-out;
+            opacity: 1;
+        }
+
+        /* File tree */
+        .file-tree {
+            font-family: 'Consolas', monospace;
+            font-size: 0.85rem;
+            line-height: 1.8;
+        }
+
+        .file-tree .folder {
+            color: var(--accent-tools);
+        }
+
+        .file-tree .file {
+            color: var(--text-secondary);
+        }
+
+        .file-tree .indent {
+            display: inline-block;
+            width: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>nanobot</h1>
+            <p>Ultra-lightweight Personal AI Assistant Framework</p>
+            <p style="color: var(--text-muted); margin-top: 10px;">~4,000 lines of core agent code</p>
+        </header>
+
+        <!-- Architecture Overview Section -->
+        <section class="section">
+            <h2 class="section-title">Architecture Overview</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 30px;">
+                Click the <strong>▼ arrow</strong> on the right to expand each layer. Click cards to view detailed component information.
+            </p>
+
+            <div class="layer-stack">
+                <!-- Layer 1: Channels -->
+                <div class="layer layer-channel">
+                    <div class="layer-header">
+                        <div class="layer-title">
+                            <span class="layer-icon">📡</span>
+                            <div>
+                                <div class="layer-name">接入层 (Channels)</div>
+                                <div class="layer-desc">用户交互入口 - Telegram, Discord, Slack, WhatsApp, Feishu, Matrix, QQ, DingTalk, Email</div>
+                            </div>
+                        </div>
+                        <span class="layer-arrow" onclick="toggleLayerArrow(this)">▼</span>
+                    </div>
+                    <div class="layer-details">
+                        <div class="grid-2">
+                            <div class="card">
+                                <div class="card-title">🔌 BaseChannel</div>
+                                <div class="card-content">
+                                    <p>Abstract base class for all chat channels</p>
+                                    <div class="tags">
+                                        <span class="tag tag-channel">start()</span>
+                                        <span class="tag tag-channel">stop()</span>
+                                        <span class="tag tag-channel">send()</span>
+                                        <span class="tag tag-channel">is_allowed()</span>
+                                    </div>
+                                    <div class="code-block">
+                                        <pre><code><span class="code-keyword">class</span> <span class="code-class">BaseChannel</span>(ABC):
+    <span class="code-keyword">async def</span> <span class="code-function">start</span>() <span class="code-keyword">-&gt;</span> <span class="code-keyword">None</span>: ...
+    <span class="code-keyword">async def</span> <span class="code-function">stop</span>() <span class="code-keyword">-&gt;</span> <span class="code-keyword">None</span>: ...
+    <span class="code-keyword">async def</span> <span class="code-function">send</span>(msg: OutboundMessage) <span class="code-keyword">-&gt;</span> <span class="code-keyword">None</span>: ...
+    <span class="code-keyword">def</span> <span class="code-function">is_allowed</span>(sender_id: <span class="code-keyword">str</span>) <span class="code-keyword">-&gt;</span> <span class="code-keyword">bool</span>: ...</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-title">📱 Available Channels</div>
+                                <div class="card-content">
+                                    <div class="tags">
+                                        <span class="tag tag-channel">telegram.py</span>
+                                        <span class="tag tag-channel">discord.py</span>
+                                        <span class="tag tag-channel">slack.py</span>
+                                        <span class="tag tag-channel">whatsapp.py</span>
+                                        <span class="tag tag-channel">feishu.py</span>
+                                        <span class="tag tag-channel">matrix.py</span>
+                                        <span class="tag tag-channel">qq.py</span>
+                                        <span class="tag tag-channel">dingtalk.py</span>
+                                        <span class="tag tag-channel">email.py</span>
+                                        <span class="tag tag-channel">mochat.py</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="inheritance-tree">
+                            <div class="inheritance-node base">
+                                <span>🏛️</span>
+                                <code>BaseChannel</code>
+                            </div>
+                            <div style="margin-left: 20px;">
+                                <div class="inheritance-node">
+                                    <div class="inheritance-line"></div>
+                                    <span>💬</span>
+                                    <code>TelegramChannel</code>
+                                </div>
+                                <div class="inheritance-node">
+                                    <div class="inheritance-line"></div>
+                                    <span>🎮</span>
+                                    <code>DiscordChannel</code>
+                                </div>
+                                <div class="inheritance-node">
+                                    <div class="inheritance-line"></div>
+                                    <span>📧</span>
+                                    <code>EmailChannel</code>
+                                </div>
+                                <div class="inheritance-node">
+                                    <div class="inheritance-line"></div>
+                                    <span>💼</span>
+                                    <code>SlackChannel</code>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Layer 2: Bus -->
+                <div class="layer layer-bus">
+                    <div class="layer-header">
+                        <div class="layer-title">
+                            <span class="layer-icon">🚌</span>
+                            <div>
+                                <div class="layer-name">传输层 (Bus)</div>
+                                <div class="layer-desc">消息路由 - Async queue-based message routing between channels and agent</div>
+                            </div>
+                        </div>
+                        <span class="layer-arrow" onclick="toggleLayerArrow(this)">▼</span>
+                    </div>
+                    <div class="layer-details">
+                        <div class="grid-2">
+                            <div class="card">
+                                <div class="card-title">📨 InboundMessage</div>
+                                <div class="card-content">
+                                    <p>Message received from a chat channel</p>
+                                    <div class="code-block">
+                                        <pre><code><span class="code-decorator">@dataclass</span>
+<span class="code-keyword">class</span> <span class="code-class">InboundMessage</span>:
+    channel: <span class="code-keyword">str</span>              <span class="code-comment"># telegram, discord, slack...</span>
+    sender_id: <span class="code-keyword">str</span>          <span class="code-comment"># User identifier</span>
+    chat_id: <span class="code-keyword">str</span>            <span class="code-comment"># Chat/channel identifier</span>
+    content: <span class="code-keyword">str</span>            <span class="code-comment"># Message text</span>
+    timestamp: datetime     <span class="code-comment"># Message timestamp</span>
+    media: list[<span class="code-keyword">str</span>]        <span class="code-comment"># Media URLs</span>
+    metadata: dict          <span class="code-comment"># Channel-specific data</span>
+    session_key_override: <span class="code-keyword">str</span> | <span class="code-keyword">None</span></code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-title">📤 OutboundMessage</div>
+                                <div class="card-content">
+                                    <p>Message to send to a chat channel</p>
+                                    <div class="code-block">
+                                        <pre><code><span class="code-decorator">@dataclass</span>
+<span class="code-keyword">class</span> <span class="code-class">OutboundMessage</span>:
+    channel: <span class="code-keyword">str</span>
+    chat_id: <span class="code-keyword">str</span>
+    content: <span class="code-keyword">str</span>
+    reply_to: <span class="code-keyword">str</span> | <span class="code-keyword">None</span>
+    media: list[<span class="code-keyword">str</span>]
+    metadata: dict</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card" style="margin-top: 20px;">
+                            <div class="card-title">🔄 MessageBus</div>
+                            <div class="card-content">
+                                <p>Async message bus that decouples chat channels from the agent core</p>
+                                <div class="code-block">
+                                    <pre><code><span class="code-keyword">class</span> <span class="code-class">MessageBus</span>:
+    <span class="code-keyword">def</span> <span class="code-function">__init__</span>(self):
+        self.inbound: asyncio.Queue[InboundMessage]
+        self.outbound: asyncio.Queue[OutboundMessage]
+
+    <span class="code-keyword">async def</span> <span class="code-function">publish_inbound</span>(msg: InboundMessage) <span class="code-keyword">-&gt;</span> <span class="code-keyword">None</span>
+    <span class="code-keyword">async def</span> <span class="code-function">consume_inbound</span>() <span class="code-keyword">-&gt;</span> InboundMessage
+    <span class="code-keyword">async def</span> <span class="code-function">publish_outbound</span>(msg: OutboundMessage) <span class="code-keyword">-&gt;</span> <span class="code-keyword">None</span>
+    <span class="code-keyword">async def</span> <span class="code-function">consume_outbound</span>() <span class="code-keyword">-&gt;</span> OutboundMessage</code></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Layer 3: Agent -->
+                <div class="layer layer-agent">
+                    <div class="layer-header">
+                        <div class="layer-title">
+                            <span class="layer-icon">🧠</span>
+                            <div>
+                                <div class="layer-name">业务层 (Agent)</div>
+                                <div class="layer-desc">核心逻辑 - AgentLoop orchestrates LLM ↔ tool execution cycle</div>
+                            </div>
+                        </div>
+                        <span class="layer-arrow" onclick="toggleLayerArrow(this)">▼</span>
+                    </div>
+                    <div class="layer-details">
+                        <div class="grid-2">
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">🔄 AgentLoop</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">The central orchestrator that manages LLM interactions and tool execution</p>
+                                    <div class="card-details">
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Purpose:</span>
+                                            <span class="card-detail-value">Orchestrates LLM ↔ tool execution cycle</span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Location:</span>
+                                            <span class="card-detail-value"><code>nanobot/agent/loop.py</code></span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Key Methods:</span>
+                                            <span class="card-detail-value">
+                                                <span class="tag tag-agent">run()</span>
+                                                <span class="tag tag-agent">_process_message()</span>
+                                                <span class="tag tag-agent">_run_agent_loop()</span>
+                                                <span class="tag tag-agent">process_direct()</span>
+                                            </span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Responsibilities:</span>
+                                            <span class="card-detail-value">
+                                                <ul style="margin: 5px 0 0 15px; padding: 0;">
+                                                    <li>Consumes inbound messages from the bus</li>
+                                                    <li>Builds prompts via ContextBuilder</li>
+                                                    <li>Calls the LLM provider</li>
+                                                    <li>Executes tool calls via ToolRegistry</li>
+                                                    <li>Publishes outbound responses</li>
+                                                </ul>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">📝 ContextBuilder</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">Prompt builder for LLM context construction</p>
+                                    <div class="card-details">
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Location:</span>
+                                            <span class="card-detail-value"><code>nanobot/agent/context.py</code></span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Key Methods:</span>
+                                            <span class="card-detail-value">
+                                                <span class="tag tag-agent">build_messages()</span>
+                                                <span class="tag tag-agent">add_assistant_message()</span>
+                                                <span class="tag tag-agent">add_tool_result()</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">💾 MemoryStore</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">Persistent memory consolidation for long-term context</p>
+                                    <div class="card-details">
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Location:</span>
+                                            <span class="card-detail-value"><code>nanobot/agent/memory.py</code></span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Key Methods:</span>
+                                            <span class="card-detail-value">
+                                                <span class="tag tag-agent">consolidate()</span>
+                                                <span class="tag tag-agent">archive_old_messages()</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">🎯 SessionManager</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">Conversation session management and persistence</p>
+                                    <div class="card-details">
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Location:</span>
+                                            <span class="card-detail-value"><code>nanobot/session/manager.py</code></span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Key Methods:</span>
+                                            <span class="card-detail-value">
+                                                <span class="tag tag-agent">get_or_create()</span>
+                                                <span class="tag tag-agent">save()</span>
+                                                <span class="tag tag-agent">invalidate()</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card" style="margin-top: 20px;">
+                            <div class="card-header" onclick="toggleCard(this)">
+                                <div class="card-title">📋 AgentLoop Core Logic</div>
+                                <span class="card-arrow">▼</span>
+                            </div>
+                            <div class="card-content">
+                                <p class="card-summary">Core agent loop showing LLM interaction and tool execution flow</p>
+                                <div class="card-details">
+                                    <div class="code-block">
+                                        <pre><code><span class="code-keyword">class</span> <span class="code-class">AgentLoop</span>:
+    <span class="code-keyword">async def</span> <span class="code-function">_run_agent_loop</span>(messages, on_progress):
+        <span class="code-keyword">while</span> iteration &lt; max_iterations:
+            response = <span class="code-keyword">await</span> provider.chat(messages, tools)
+
+            <span class="code-keyword">if</span> response.has_tool_calls:
+                <span class="code-keyword">for</span> tool_call <span class="code-keyword">in</span> response.tool_calls:
+                    result = <span class="code-keyword">await</span> tools.execute(tool_call.name, args)
+                    messages = add_tool_result(messages, result)
+            <span class="code-keyword">else</span>:
+                <span class="code-keyword">break</span>  <span class="code-comment"># Final response</span>
+
+        <span class="code-keyword">return</span> final_content, tools_used, messages</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Layer 4: Tools -->
+                <div class="layer layer-tools">
+                    <div class="layer-header">
+                        <div class="layer-title">
+                            <span class="layer-icon">🔧</span>
+                            <div>
+                                <div class="layer-name">工具层 (Tools)</div>
+                                <div class="layer-desc">能力扩展 - Extensible tool system for agent capabilities</div>
+                            </div>
+                        </div>
+                        <span class="layer-arrow" onclick="toggleLayerArrow(this)">▼</span>
+                    </div>
+                    <div class="layer-details">
+                        <div class="grid-3">
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">📁 FileTools</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">File system operations for reading, writing, and editing files</p>
+                                    <div class="card-details">
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Location:</span>
+                                            <span class="card-detail-value"><code>nanobot/agent/tools/file.py</code></span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Tools:</span>
+                                            <span class="card-detail-value">
+                                                <span class="tag tag-tools">ReadFileTool</span>
+                                                <span class="tag tag-tools">WriteFileTool</span>
+                                                <span class="tag tag-tools">EditFileTool</span>
+                                                <span class="tag tag-tools">ListDirTool</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">🌐 WebTools</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">Web search and content fetching capabilities</p>
+                                    <div class="card-details">
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Location:</span>
+                                            <span class="card-detail-value"><code>nanobot/agent/tools/web.py</code></span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Tools:</span>
+                                            <span class="card-detail-value">
+                                                <span class="tag tag-tools">WebSearchTool</span>
+                                                <span class="tag tag-tools">WebFetchTool</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">⚙️ SystemTools</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">System-level operations including command execution</p>
+                                    <div class="card-details">
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Location:</span>
+                                            <span class="card-detail-value"><code>nanobot/agent/tools/system.py</code></span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Tools:</span>
+                                            <span class="card-detail-value">
+                                                <span class="tag tag-tools">ExecTool</span>
+                                                <span class="tag tag-tools">SpawnTool</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">📬 MessageTool</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">Send messages through connected channels</p>
+                                    <div class="card-details">
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Location:</span>
+                                            <span class="card-detail-value"><code>nanobot/agent/tools/message.py</code></span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Methods:</span>
+                                            <span class="card-detail-value">
+                                                <span class="tag tag-tools">message</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">⏰ CronTool</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">Scheduled task management and execution</p>
+                                    <div class="card-details">
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Location:</span>
+                                            <span class="card-detail-value"><code>nanobot/agent/tools/cron.py</code></span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Methods:</span>
+                                            <span class="card-detail-value">
+                                                <span class="tag tag-tools">cron</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">🔌 MCP</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">Model Context Protocol server integration</p>
+                                    <div class="card-details">
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Location:</span>
+                                            <span class="card-detail-value"><code>nanobot/agent/tools/mcp.py</code></span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Features:</span>
+                                            <span class="card-detail-value">
+                                                <span class="tag tag-tools">MCP Servers</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card" style="margin-top: 20px;">
+                            <div class="card-header" onclick="toggleCard(this)">
+                                <div class="card-title">🏛️ Tool Base Class</div>
+                                <span class="card-arrow">▼</span>
+                            </div>
+                            <div class="card-content">
+                                <p class="card-summary">Abstract base class defining the Tool interface</p>
+                                <div class="card-details">
+                                    <div class="code-block">
+                                        <pre><code><span class="code-keyword">class</span> <span class="code-class">Tool</span>(ABC):
+    <span class="code-decorator">@property</span>
+    <span class="code-keyword">def</span> <span class="code-function">name</span>(self) <span class="code-keyword">-&gt;</span> <span class="code-keyword">str</span>: ...  <span class="code-comment"># Tool name</span>
+
+    <span class="code-decorator">@property</span>
+    <span class="code-keyword">def</span> <span class="code-function">description</span>(self) <span class="code-keyword">-&gt;</span> <span class="code-keyword">str</span>: ...  <span class="code-comment"># What it does</span>
+
+    <span class="code-decorator">@property</span>
+    <span class="code-keyword">def</span> <span class="code-function">parameters</span>(self) <span class="code-keyword">-&gt;</span> dict: ...  <span class="code-comment"># JSON Schema</span>
+
+    <span class="code-keyword">async def</span> <span class="code-function">execute</span>(**kwargs) <span class="code-keyword">-&gt;</span> <span class="code-keyword">str</span>: ...  <span class="code-comment"># Execute tool</span>
+
+    <span class="code-keyword">def</span> <span class="code-function">validate_params</span>(params: dict) <span class="code-keyword">-&gt;</span> list[<span class="code-keyword">str</span>]: ...
+    <span class="code-keyword">def</span> <span class="code-function">to_schema</span>(self) <span class="code-keyword">-&gt;</span> dict: ...  <span class="code-comment"># OpenAI format</span></code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card" style="margin-top: 20px;">
+                            <div class="card-header" onclick="toggleCard(this)">
+                                <div class="card-title">📋 ToolRegistry</div>
+                                <span class="card-arrow">▼</span>
+                            </div>
+                            <div class="card-content">
+                                <p class="card-summary">Dynamic tool registration and execution with validation</p>
+                                <div class="card-details">
+                                    <div class="code-block">
+                                        <pre><code><span class="code-keyword">class</span> <span class="code-class">ToolRegistry</span>:
+    <span class="code-keyword">def</span> <span class="code-function">register</span>(self, tool: Tool) <span class="code-keyword">-&gt;</span> <span class="code-keyword">None</span>
+    <span class="code-keyword">def</span> <span class="code-function">get</span>(self, name: <span class="code-keyword">str</span>) <span class="code-keyword">-&gt;</span> Tool | <span class="code-keyword">None</span>
+    <span class="code-keyword">def</span> <span class="code-function">get_definitions</span>(self) <span class="code-keyword">-&gt;</span> list[dict]
+    <span class="code-keyword">async def</span> <span class="code-function">execute</span>(self, name: <span class="code-keyword">str</span>, args: dict) <span class="code-keyword">-&gt;</span> <span class="code-keyword">str</span></code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Layer 5: Providers/Config -->
+                <div class="layer layer-providers">
+                    <div class="layer-header">
+                        <div class="layer-title">
+                            <span class="layer-icon">⚡</span>
+                            <div>
+                                <div class="layer-name">基础层 (Providers/Config)</div>
+                                <div class="layer-desc">底层依赖 - LLM provider registry and configuration system</div>
+                            </div>
+                        </div>
+                        <span class="layer-arrow" onclick="toggleLayerArrow(this)">▼</span>
+                    </div>
+                    <div class="layer-details">
+                        <div class="grid-2">
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">🎯 ProviderRegistry</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">Single source of truth for LLM provider metadata</p>
+                                    <div class="card-details">
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Location:</span>
+                                            <span class="card-detail-value"><code>nanobot/providers/registry.py</code></span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Key Methods:</span>
+                                            <span class="card-detail-value">
+                                                <span class="tag tag-providers">find_by_model()</span>
+                                                <span class="tag tag-providers">find_gateway()</span>
+                                                <span class="tag tag-providers">find_by_name()</span>
+                                            </span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Available Providers:</span>
+                                            <span class="card-detail-value">
+                                                <div class="tags" style="margin-top: 8px;">
+                                                    <span class="tag tag-providers">Anthropic</span>
+                                                    <span class="tag tag-providers">OpenAI</span>
+                                                    <span class="tag tag-providers">OpenAI Codex</span>
+                                                    <span class="tag tag-providers">Github Copilot</span>
+                                                    <span class="tag tag-providers">DeepSeek</span>
+                                                    <span class="tag tag-providers">Gemini</span>
+                                                    <span class="tag tag-providers">Zhipu AI</span>
+                                                    <span class="tag tag-providers">DashScope</span>
+                                                    <span class="tag tag-providers">Moonshot</span>
+                                                    <span class="tag tag-providers">MiniMax</span>
+                                                    <span class="tag tag-providers">Groq</span>
+                                                    <span class="tag tag-providers">OpenRouter</span>
+                                                    <span class="tag tag-providers">AiHubMix</span>
+                                                    <span class="tag tag-providers">SiliconFlow</span>
+                                                    <span class="tag tag-providers">VolcEngine</span>
+                                                    <span class="tag tag-providers">vLLM (Local)</span>
+                                                </div>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">📐 ProviderSpec</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">Provider metadata specification defining provider properties</p>
+                                    <div class="card-details">
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Location:</span>
+                                            <span class="card-detail-value"><code>nanobot/providers/registry.py</code></span>
+                                        </div>
+                                        <div class="card-detail-item">
+                                            <span class="card-detail-label">Properties:</span>
+                                            <span class="card-detail-value">
+                                                <div class="code-block" style="margin-top: 8px;">
+                                                    <pre><code><span class="code-decorator">@dataclass</span>(frozen=<span class="code-keyword">True</span>)
+<span class="code-keyword">class</span> <span class="code-class">ProviderSpec</span>:
+    name: <span class="code-keyword">str</span>                    <span class="code-comment"># config field name</span>
+    keywords: tuple[<span class="code-keyword">str</span>, ...]    <span class="code-comment"># model-name keywords</span>
+    env_key: <span class="code-keyword">str</span>                <span class="code-comment"># LiteLLM env var</span>
+    display_name: <span class="code-keyword">str</span>           <span class="code-comment"># shown in status</span>
+    litellm_prefix: <span class="code-keyword">str</span>         <span class="code-comment"># model prefix</span>
+    is_gateway: <span class="code-keyword">bool</span>            <span class="code-comment"># routes any model</span>
+    is_local: <span class="code-keyword">bool</span>              <span class="code-comment"># local deployment</span>
+    supports_prompt_caching: <span class="code-keyword">bool</span></code></pre>
+                                                </div>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card" style="margin-top: 20px;">
+                            <div class="card-header" onclick="toggleCard(this)">
+                                <div class="card-title">📋 Adding a New Provider</div>
+                                <span class="card-arrow">▼</span>
+                            </div>
+                            <div class="card-content">
+                                <p class="card-summary">Simple two-step process to add new LLM providers</p>
+                                <div class="card-details">
+                                    <p style="color: var(--text-secondary); margin-bottom: 15px;">
+                                        Adding a new provider requires only 2 steps:
+                                    </p>
+                                    <ol style="color: var(--text-secondary); margin-left: 20px;">
+                                        <li style="margin-bottom: 10px;">Add <code style="color: var(--accent-providers);">ProviderSpec</code> to <code style="color: var(--accent-providers);">PROVIDERS</code> tuple in <code style="color: var(--accent-providers);">providers/registry.py</code></li>
+                                        <li>Add field to <code style="color: var(--accent-providers);">ProvidersConfig</code> in <code style="color: var(--accent-providers);">config/schema.py</code></li>
+                                    </ol>
+                                    <p style="color: var(--text-muted); margin-top: 15px;">
+                                        Done. Env vars, prefixing, config matching, status display all derive from here.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="grid-3" style="margin-top: 20px;">
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">📁 Project Structure</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">Core project directory structure</p>
+                                    <div class="card-details">
+                                        <div class="file-tree card-content">
+                                            <span class="folder">nanobot/</span><br>
+                                            <span class="indent"></span><span class="folder">agent/</span><br>
+                                            <span class="indent"></span><span class="indent"></span><span class="file">loop.py</span><br>
+                                            <span class="indent"></span><span class="indent"></span><span class="file">context.py</span><br>
+                                            <span class="indent"></span><span class="indent"></span><span class="file">memory.py</span><br>
+                                            <span class="indent"></span><span class="indent"></span><span class="file">tools/</span><br>
+                                            <span class="indent"></span><span class="folder">bus/</span><br>
+                                            <span class="indent"></span><span class="indent"></span><span class="file">queue.py</span><br>
+                                            <span class="indent"></span><span class="indent"></span><span class="file">events.py</span><br>
+                                            <span class="indent"></span><span class="folder">channels/</span><br>
+                                            <span class="indent"></span><span class="folder">providers/</span><br>
+                                            <span class="indent"></span><span class="folder">config/</span><br>
+                                            <span class="indent"></span><span class="folder">cron/</span><br>
+                                            <span class="indent"></span><span class="folder">session/</span><br>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-header" onclick="toggleCard(this)">
+                                    <div class="card-title">📊 Stats</div>
+                                    <span class="card-arrow">▼</span>
+                                </div>
+                                <div class="card-content">
+                                    <p class="card-summary">Project statistics and metrics</p>
+                                    <div class="card-details">
+                                        <div class="stats-grid">
+                                            <div class="stat-card">
+                                                <div class="stat-value">~4K</div>
+                                                <div class="stat-label">Lines of Code</div>
+                                            </div>
+                                            <div class="stat-card">
+                                                <div class="stat-value">10+</div>
+                                                <div class="stat-label">Channels</div>
+                                            </div>
+                                            <div class="stat-card">
+                                                <div class="stat-value">16</div>
+                                                <div class="stat-label">Providers</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="stat-value">10+</div>
+                                        <div class="stat-label">Tools</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Data Flow Section -->
+        <section class="section">
+            <h2 class="section-title">Data Flow - Message Lifecycle</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 30px;">
+                Interactive animation showing how a message flows through the system
+            </p>
+
+            <div class="flow-container" id="flowContainer">
+                <div class="flow-layers">
+                    <div class="flow-layer" id="layer-user">
+                        <div>
+                            <span class="layer-label">SOURCE</span>
+                            👤 User Input
+                        </div>
+                    </div>
+
+                    <div class="flow-arrow" id="arrow-1"></div>
+
+                    <div class="flow-layer" id="layer-channel">
+                        <div>
+                            <span class="layer-label">LAYER 1</span>
+                            📡 Channel receives message
+                        </div>
+                    </div>
+
+                    <div class="flow-arrow" id="arrow-2"></div>
+
+                    <div class="flow-layer" id="layer-bus-in">
+                        <div>
+                            <span class="layer-label">LAYER 2</span>
+                            📨 InboundMessage → Bus
+                        </div>
+                    </div>
+
+                    <div class="flow-arrow" id="arrow-3"></div>
+
+                    <div class="flow-layer" id="layer-agent">
+                        <div>
+                            <span class="layer-label">LAYER 3</span>
+                            🧠 AgentLoop processes
+                        </div>
+                    </div>
+
+                    <div class="flow-arrow" id="arrow-4"></div>
+
+                    <div class="flow-layer" id="layer-tools">
+                        <div>
+                            <span class="layer-label">LAYER 4</span>
+                            🔧 Tool execution (if needed)
+                        </div>
+                    </div>
+
+                    <div class="flow-arrow" id="arrow-5"></div>
+
+                    <div class="flow-layer" id="layer-llm">
+                        <div>
+                            <span class="layer-label">EXTERNAL</span>
+                            ⚡ LLM Provider
+                        </div>
+                    </div>
+
+                    <div class="flow-arrow" id="arrow-6"></div>
+
+                    <div class="flow-layer" id="layer-bus-out">
+                        <div>
+                            <span class="layer-label">LAYER 2</span>
+                            📤 OutboundMessage → Bus
+                        </div>
+                    </div>
+
+                    <div class="flow-arrow" id="arrow-7"></div>
+
+                    <div class="flow-layer" id="layer-response">
+                        <div>
+                            <span class="layer-label">DESTINATION</span>
+                            👤 Response to User
+                        </div>
+                    </div>
+                </div>
+
+                <div class="message-packet inbound" id="packetInbound"></div>
+                <div class="message-packet outbound" id="packetOutbound"></div>
+
+                <div class="flow-controls">
+                    <button class="btn btn-primary" onclick="startFlowAnimation()">▶️ Start Animation</button>
+                    <button class="btn btn-secondary" onclick="resetFlowAnimation()">🔄 Reset</button>
+                </div>
+            </div>
+
+            <div class="flow-diagram">
+                <h3 style="margin: 30px 0 20px; color: var(--text-primary);">Step by Step Breakdown</h3>
+
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <h4>👤 User Input</h4>
+                        <p>User sends a message through one of the supported channels (Telegram, Discord, Slack, etc.)</p>
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <h4>📡 Channel Reception</h4>
+                        <p>The channel's <code>start()</code> method receives the message and calls <code>_handle_message()</code> which validates the sender against the allowlist.</p>
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <h4>📨 InboundMessage Created</h4>
+                        <p>An <code>InboundMessage</code> dataclass is created with channel, sender_id, chat_id, content, and metadata. It's published to the MessageBus inbound queue.</p>
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="flow-step-number">4</div>
+                    <div class="flow-step-content">
+                        <h4>🧠 AgentLoop Processing</h4>
+                        <p><code>AgentLoop.run()</code> consumes the inbound message. <code>_process_message()</code> retrieves the session, builds context with conversation history via <code>ContextBuilder</code>.</p>
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="flow-step-number">5</div>
+                    <div class="flow-step-content">
+                        <h4>🔄 Agent Iteration Loop</h4>
+                        <p><code>_run_agent_loop()</code> iterates: calls LLM → parses tool calls → executes tools via <code>ToolRegistry</code> → adds results to messages. Continues until LLM returns final response.</p>
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="flow-step-number">6</div>
+                    <div class="flow-step-content">
+                        <h4>🔧 Tool Execution (Optional)</h4>
+                        <p>If the LLM requests tool calls, <code>ToolRegistry.execute()</code> runs the appropriate tool (file operations, web search, shell commands, etc.) and returns results.</p>
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="flow-step-number">7</div>
+                    <div class="flow-step-content">
+                        <h4>⚡ LLM Provider Call</h4>
+                        <p>The configured LLM provider (Anthropic, OpenAI, etc.) receives the prompt and returns a completion. Provider selection is handled by <code>ProviderRegistry</code>.</p>
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="flow-step-number">8</div>
+                    <div class="flow-step-content">
+                        <h4>📤 OutboundMessage Created</h4>
+                        <p>The final response is wrapped in an <code>OutboundMessage</code> and published to the MessageBus outbound queue.</p>
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="flow-step-number">9</div>
+                    <div class="flow-step-content">
+                        <h4>📬 Response Delivery</h4>
+                        <p>The channel's <code>send()</code> method delivers the response back to the user through the original chat platform.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Key Interfaces Section -->
+        <section class="section">
+            <h2 class="section-title">Key Interfaces & Patterns</h2>
+
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-header" onclick="toggleCard(this)">
+                        <div class="card-title">🏛️ Inheritance Pattern</div>
+                        <span class="card-arrow">▼</span>
+                    </div>
+                    <div class="card-content">
+                        <p class="card-summary">All channels inherit from BaseChannel, ensuring consistent interface</p>
+                        <div class="card-details">
+                            <p style="margin-bottom: 15px;">All channels inherit from BaseChannel, ensuring consistent interface:</p>
+                            <div class="code-block">
+                                <pre><code><span class="code-keyword">from</span> nanobot.channels.base <span class="code-keyword">import</span> BaseChannel
+
+<span class="code-keyword">class</span> <span class="code-class">TelegramChannel</span>(BaseChannel):
+    name = <span class="code-string">"telegram"</span>
+
+    <span class="code-keyword">async def</span> <span class="code-function">start</span>(self) <span class="code-keyword">-&gt;</span> <span class="code-keyword">None</span>:
+        <span class="code-comment"># Connect to Telegram Bot API</span>
+        <span class="code-keyword">while</span> self._running:
+            msg = <span class="code-keyword">await</span> self._poll_updates()
+            <span class="code-keyword">await</span> self._handle_message(...)
+
+    <span class="code-keyword">async def</span> <span class="code-function">send</span>(self, msg: OutboundMessage):
+        <span class="code-keyword">await</span> self.bot.send_message(...)
+
+    <span class="code-keyword">async def</span> <span class="code-function">stop</span>(self):
+        self._running = <span class="code-keyword">False</span></code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header" onclick="toggleCard(this)">
+                        <div class="card-title">🔄 Tool Pattern</div>
+                        <span class="card-arrow">▼</span>
+                    </div>
+                    <div class="card-content">
+                        <p class="card-summary">All tools implement the Tool abstract base class</p>
+                        <div class="card-details">
+                            <p style="margin-bottom: 15px;">All tools implement the Tool abstract base class:</p>
+                            <div class="code-block">
+                                <pre><code><span class="code-keyword">from</span> nanobot.agent.tools.base <span class="code-keyword">import</span> Tool
+
+<span class="code-keyword">class</span> <span class="code-class">ReadFileTool</span>(Tool):
+    name = <span class="code-string">"read_file"</span>
+    description = <span class="code-string">"Read contents of a file"</span>
+    parameters = {
+        <span class="code-string">"type"</span>: <span class="code-string">"object"</span>,
+        <span class="code-string">"properties"</span>: {
+            <span class="code-string">"path"</span>: {<span class="code-string">"type"</span>: <span class="code-string">"string"</span>, <span class="code-string">"description"</span>: <span class="code-string">"File path"</span>}
+        },
+        <span class="code-string">"required"</span>: [<span class="code-string">"path"</span>]
+    }
+
+    <span class="code-keyword">async def</span> <span class="code-function">execute</span>(self, path: <span class="code-keyword">str</span>) <span class="code-keyword">-&gt;</span> <span class="code-keyword">str</span>:
+        <span class="code-keyword">return</span> Path(path).read_text()</code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header" onclick="toggleCard(this)">
+                        <div class="card-title">🎯 Registry Pattern</div>
+                        <span class="card-arrow">▼</span>
+                    </div>
+                    <div class="card-content">
+                        <p class="card-summary">ProviderRegistry uses a declarative registration system</p>
+                        <div class="card-details">
+                            <p style="margin-bottom: 15px;">ProviderRegistry uses a declarative registration system:</p>
+                            <div class="code-block">
+                                <pre><code>PROVIDERS: tuple[ProviderSpec, ...] = (
+    ProviderSpec(
+        name=<span class="code-string">"anthropic"</span>,
+        keywords=(<span class="code-string">"anthropic"</span>, <span class="code-string">"claude"</span>),
+        env_key=<span class="code-string">"ANTHROPIC_API_KEY"</span>,
+        display_name=<span class="code-string">"Anthropic"</span>,
+        litellm_prefix=<span class="code-string">""</span>,
+        is_gateway=<span class="code-keyword">False</span>,
+        supports_prompt_caching=<span class="code-keyword">True</span>,
+    ),
+    <span class="code-comment"># ... more providers</span>
+)
+
+<span class="code-keyword">def</span> <span class="code-function">find_by_model</span>(model: <span class="code-keyword">str</span>) <span class="code-keyword">-&gt;</span> ProviderSpec | <span class="code-keyword">None</span>:
+    <span class="code-keyword">for</span> spec <span class="code-keyword">in</span> PROVIDERS:
+        <span class="code-keyword">if</span> any(kw <span class="code-keyword">in</span> model <span class="code-keyword">for</span> kw <span class="code-keyword">in</span> spec.keywords):
+            <span class="code-keyword">return</span> spec
+    <span class="code-keyword">return</span> <span class="code-keyword">None</span></code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header" onclick="toggleCard(this)">
+                        <div class="card-title">📨 Message Bus Pattern</div>
+                        <span class="card-arrow">▼</span>
+                    </div>
+                    <div class="card-content">
+                        <p class="card-summary">AsyncIO queues for decoupled communication</p>
+                        <div class="card-details">
+                            <p style="margin-bottom: 15px;">AsyncIO queues for decoupled communication:</p>
+                            <div class="code-block">
+                                <pre><code><span class="code-keyword">class</span> <span class="code-class">MessageBus</span>:
+    <span class="code-keyword">def</span> <span class="code-function">__init__</span>(self):
+        self.inbound = asyncio.Queue[InboundMessage]()
+        self.outbound = asyncio.Queue[OutboundMessage]()
+
+    <span class="code-keyword">async def</span> <span class="code-function">publish_inbound</span>(self, msg):
+        <span class="code-keyword">await</span> self.inbound.put(msg)
+
+    <span class="code-keyword">async def</span> <span class="code-function">consume_inbound</span>(self):
+        <span class="code-keyword">return</span> <span class="code-keyword">await</span> self.inbound.get()
+
+    <span class="code-comment"># Channels publish, AgentLoop consumes</span>
+    <span class="code-comment"># Full decoupling - no direct references</span></code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // Layer toggle functionality - only via arrow click
+        function toggleLayerArrow(arrowElement) {
+            const layer = arrowElement.closest('.layer');
+            const isExpanded = layer.classList.contains('expanded');
+
+            // Close all other layers
+            document.querySelectorAll('.layer').forEach(layer => {
+                layer.classList.remove('expanded');
+            });
+
+            // Toggle clicked layer
+            if (!isExpanded) {
+                layer.classList.add('expanded');
+            }
+        }
+
+        // Card toggle functionality
+        function toggleCard(arrowElement) {
+            const card = arrowElement.closest('.card');
+            card.classList.toggle('expanded');
+        }
+
+        // Flow animation
+        let animationRunning = false;
+
+        function startFlowAnimation() {
+            if (animationRunning) return;
+            animationRunning = true;
+
+            const container = document.getElementById('flowContainer');
+            const packetInbound = document.getElementById('packetInbound');
+            const packetOutbound = document.getElementById('packetOutbound');
+
+            // Reset first
+            resetFlowAnimation();
+
+            setTimeout(() => {
+                container.classList.add('animating');
+
+                // Inbound flow - highlight layers sequentially
+                const inboundSequence = [
+                    ['layer-user', 'arrow-1'],
+                    ['layer-channel', 'arrow-2'],
+                    ['layer-bus-in', 'arrow-3'],
+                    ['layer-agent', 'arrow-4'],
+                    ['layer-tools', 'arrow-5'],
+                    ['layer-llm', 'arrow-6'],
+                ];
+
+                // Outbound flow
+                const outboundSequence = [
+                    ['layer-llm', 'arrow-7'],
+                    ['layer-bus-out', null],
+                    ['layer-response', null],
+                ];
+
+                // Inbound animation
+                inboundSequence.forEach((step, index) => {
+                    setTimeout(() => {
+                        const [layerId, arrowId] = step;
+                        document.getElementById(layerId).classList.add('active');
+                        if (arrowId) {
+                            document.getElementById(arrowId).classList.add('active');
+                        }
+                    }, index * 400);
+                });
+
+                // Outbound animation (after inbound completes)
+                setTimeout(() => {
+                    packetInbound.style.display = 'none';
+                    packetOutbound.style.display = 'block';
+
+                    outboundSequence.forEach((step, index) => {
+                        setTimeout(() => {
+                            const [layerId, arrowId] = step;
+                            document.getElementById(layerId).classList.add('active');
+                            if (arrowId) {
+                                document.getElementById(arrowId).classList.add('active');
+                            }
+                        }, index * 400);
+                    });
+                }, inboundSequence.length * 400 + 500);
+
+                // Reset animation running flag
+                setTimeout(() => {
+                    animationRunning = false;
+                }, (inboundSequence.length + outboundSequence.length) * 400 + 1000);
+            }, 100);
+        }
+
+        function resetFlowAnimation() {
+            const container = document.getElementById('flowContainer');
+            container.classList.remove('animating');
+
+            // Remove all active classes
+            document.querySelectorAll('.flow-layer, .flow-arrow').forEach(el => {
+                el.classList.remove('active');
+            });
+
+            // Reset packets
+            const packetInbound = document.getElementById('packetInbound');
+            const packetOutbound = document.getElementById('packetOutbound');
+            packetInbound.style.display = 'block';
+            packetOutbound.style.display = 'none';
+
+            animationRunning = false;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            resetFlowAnimation();
+        });
+    </script>
+</body>
+</html>
