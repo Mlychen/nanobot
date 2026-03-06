@@ -284,20 +284,24 @@ def _load_runtime_config(config: str | None = None, workspace: str | None = None
     return loaded
 
 
-def _domain_agent_factories():
+def _domain_agent_factories(workspace: Path):
     """Return deferred domain-agent factories for the current runtime."""
     from nanobot.agent.domain.gate_b_probe import create_gate_b_probe_agent
+    from nanobot.agent.domain.scheduler_agent import create_scheduler_agent
 
-    return (create_gate_b_probe_agent,)
+    return (
+        create_gate_b_probe_agent,
+        lambda: create_scheduler_agent(workspace),
+    )
 
 
 
-def _make_primary_orchestrator():
+def _make_primary_orchestrator(workspace: Path):
     """Create the primary orchestrator from the WP04 runtime assembly entrypoint."""
     from nanobot.agent.domain import create_domain_registry
     from nanobot.agent.primary import PrimaryAgentOrchestrator
 
-    registry = create_domain_registry(factories=_domain_agent_factories())
+    registry = create_domain_registry(factories=_domain_agent_factories(workspace))
     return PrimaryAgentOrchestrator(registry)
 
 
@@ -321,6 +325,7 @@ def gateway(
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
+    from nanobot.identity import IdentityStore
     from nanobot.session.manager import SessionManager
 
     if verbose:
@@ -339,7 +344,7 @@ def gateway(
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_cron_dir() / "jobs.json"
     cron = CronService(cron_store_path)
-    primary_orchestrator = _make_primary_orchestrator()
+    primary_orchestrator = _make_primary_orchestrator(config.workspace_path)
 
     # Create agent with cron service
     agent = AgentLoop(
@@ -427,26 +432,48 @@ def gateway(
     # Create channel manager
     channels = ChannelManager(config, bus)
 
-    def _pick_heartbeat_target() -> tuple[str, str]:
-        """Pick a routable channel/chat target for heartbeat-triggered messages."""
+    identity_store = IdentityStore(config.workspace_path)
+
+    def _pick_heartbeat_target() -> tuple[str, str, str | None, str, str]:
+        """Pick a routable target for heartbeat-triggered scheduler checks."""
+
         enabled = set(channels.enabled_channels)
-        # Prefer the most recently updated non-internal session on an enabled channel.
         for item in session_manager.list_sessions():
-            key = item.get("key") or ""
+            key = str(item.get("key") or "")
+            if not key:
+                continue
+
+            if key.startswith("person:"):
+                parts = key.split(":", 2)
+                person_id = parts[1] if len(parts) >= 2 else None
+                if not person_id:
+                    continue
+                person = identity_store.get_person(person_id)
+                if person is None:
+                    continue
+                for candidate in [person.primary_channel, "feishu", "cli"]:
+                    if not candidate or candidate not in enabled:
+                        continue
+                    binding = identity_store.find_binding_for_person(person_id, candidate)
+                    if binding is None:
+                        continue
+                    return candidate, binding.external_user_id, person_id, key, f"{candidate}:{binding.external_user_id}"
+                continue
+
             if ":" not in key:
                 continue
             channel, chat_id = key.split(":", 1)
-            if channel in {"cli", "system"}:
+            if channel in {"cli", "system", "person"}:
                 continue
             if channel in enabled and chat_id:
-                return channel, chat_id
-        # Fallback keeps prior behavior but remains explicit.
-        return "cli", "direct"
+                return channel, chat_id, None, key, f"{channel}:{chat_id}"
+
+        return "cli", "direct", None, "heartbeat", "heartbeat"
 
     # Create heartbeat service
     async def on_heartbeat_execute(tasks: str) -> str:
         """Phase 2: execute heartbeat tasks through the full agent loop."""
-        channel, chat_id = _pick_heartbeat_target()
+        channel, chat_id, person_id, session_key, surface_id = _pick_heartbeat_target()
 
         async def _silent(*_args, **_kwargs):
             pass
@@ -458,9 +485,11 @@ def gateway(
                 trigger=DomainTrigger.HEARTBEAT,
                 channel=channel,
                 chat_id=chat_id,
-                session_key="heartbeat",
-                surface_id="heartbeat",
+                person_id=person_id,
+                session_key=session_key,
+                surface_id=surface_id,
                 metadata={
+                    "person_id": person_id,
                     "orchestrator": {
                         "agent_name": "scheduler",
                         "trigger": DomainTrigger.HEARTBEAT.value,
@@ -473,15 +502,17 @@ def gateway(
 
         return await agent.process_direct(
             tasks,
-            session_key="heartbeat",
+            session_key=session_key,
             channel=channel,
             chat_id=chat_id,
             on_progress=_silent,
         )
+
     async def on_heartbeat_notify(response: str) -> None:
         """Deliver a heartbeat response to the user's channel."""
         from nanobot.bus.events import OutboundMessage
-        channel, chat_id = _pick_heartbeat_target()
+
+        channel, chat_id, _, _, _ = _pick_heartbeat_target()
         if channel == "cli":
             return  # No external channel available to deliver to
         await bus.publish_outbound(OutboundMessage(channel=channel, chat_id=chat_id, content=response))
@@ -547,7 +578,6 @@ def agent(
     """Interact with the agent directly."""
     from loguru import logger
 
-    from nanobot.agent.domain import DomainTrigger
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
     from nanobot.config.paths import get_cron_dir
@@ -567,7 +597,7 @@ def agent(
     # Create cron service for tool usage (no callback needed for CLI unless running)
     cron_store_path = get_cron_dir() / "jobs.json"
     cron = CronService(cron_store_path)
-    primary_orchestrator = _make_primary_orchestrator()
+    primary_orchestrator = _make_primary_orchestrator(config.workspace_path)
 
     if logs:
         logger.enable("nanobot")
@@ -1070,6 +1100,8 @@ def _login_github_copilot() -> None:
 
 if __name__ == "__main__":
     app()
+
+
 
 
 

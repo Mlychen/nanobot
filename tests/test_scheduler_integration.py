@@ -41,7 +41,7 @@ class StubProvider:
         return "test-model"
 
     async def chat(self, *args, **kwargs):  # pragma: no cover - direct path should bypass provider
-        raise AssertionError("provider should not be used in Gate B orchestrator tests")
+        raise AssertionError("provider should not be used in scheduler integration tests")
 
 
 async def _dispatch_single(manager: ChannelManager, bus: MessageBus, msg: OutboundMessage) -> None:
@@ -63,8 +63,9 @@ def _seed_identity(store: IdentityStore) -> None:
     store.bind_identity("owner", "cli", "cli-user")
 
 
-def _make_loop(tmp_path: Path) -> AgentLoop:
-    return AgentLoop(
+@pytest.mark.asyncio
+async def test_scheduler_sync_path_returns_plan_from_registered_agent(tmp_path: Path) -> None:
+    loop = AgentLoop(
         bus=MessageBus(),
         provider=StubProvider(),
         workspace=tmp_path,
@@ -73,69 +74,43 @@ def _make_loop(tmp_path: Path) -> AgentLoop:
         primary_orchestrator=_make_primary_orchestrator(tmp_path),
     )
 
-
-def test_gate_b_primary_orchestrator_uses_runtime_assembly(tmp_path: Path) -> None:
-    orchestrator = _make_primary_orchestrator(tmp_path)
-
-    descriptor = orchestrator.describe_agent("gate-b-probe")
-
-    assert descriptor is not None
-    assert descriptor.name == "gate-b-probe"
-
-
-@pytest.mark.asyncio
-async def test_gate_b_sync_path_returns_user_reply_from_registered_agent(tmp_path: Path) -> None:
-    loop = _make_loop(tmp_path)
-
     result = await loop._process_message(
         InboundMessage(
             channel="cli",
             sender_id="cli-user",
             chat_id="direct",
-            content="/delegate-sync gate-b-probe check sync",
+            content="请帮我安排今天学习",
             metadata={
                 "person_id": "owner",
                 "identity": {"trusted": True, "surface_kind": "cli"},
                 "session": {"session_key": "person:owner:direct", "surface_id": "cli:direct"},
+                "orchestrator": {
+                    "agent_name": "scheduler",
+                    "reply_mode": "sync",
+                    "goal": "安排今天学习",
+                    "constraints": {
+                        "now": "2026-03-06T08:00:00",
+                        "plan_date": "2026-03-06",
+                        "time_blocks": [
+                            {"label": "行测刷题", "start_at": "09:00", "end_at": "10:00"},
+                            {"label": "申论复盘", "start_at": "10:30", "end_at": "11:15"},
+                        ],
+                        "review_due_at": "12:00",
+                    },
+                },
             },
         ),
         session_key="person:owner:direct",
     )
 
     assert result is not None
-    assert result.content == "gate-b sync:check sync"
+    assert "今日学习计划（2026-03-06）" in result.content
+    assert "行测刷题" in result.content
+    assert "申论复盘" in result.content
 
 
 @pytest.mark.asyncio
-async def test_gate_b_event_path_returns_event_reply_from_registered_agent(tmp_path: Path) -> None:
-    loop = _make_loop(tmp_path)
-
-    result = await loop._process_message(
-        InboundMessage(
-            channel="system",
-            sender_id="heartbeat",
-            chat_id="feishu:ou_123",
-            content="check cadence",
-            metadata={
-                "person_id": "owner",
-                "orchestrator": {
-                    "agent_name": "gate-b-probe",
-                    "trigger": "heartbeat",
-                    "goal": "check cadence",
-                },
-                "identity": {"trusted": True, "surface_kind": "dm"},
-            },
-        )
-    )
-
-    assert result is not None
-    assert result.channel == "feishu"
-    assert result.chat_id == "ou_123"
-    assert result.content == "gate-b event:check cadence"
-
-
-@pytest.mark.asyncio
-async def test_gate_b_async_path_routes_finished_notification_via_channel_manager(tmp_path: Path) -> None:
+async def test_scheduler_async_path_routes_finished_notification_via_channel_manager(tmp_path: Path) -> None:
     config = Config()
     config.agents.defaults.workspace = str(tmp_path)
     bus = MessageBus()
@@ -158,18 +133,24 @@ async def test_gate_b_async_path_routes_finished_notification_via_channel_manage
             channel="cli",
             sender_id="cli-user",
             chat_id="direct",
-            content="/delegate-async gate-b-probe remind later",
+            content="稍后提醒我开始学习",
             metadata={
                 "person_id": "owner",
                 "identity": {"trusted": True, "surface_kind": "cli"},
                 "session": {"session_key": "person:owner:direct", "surface_id": "cli:direct"},
+                "orchestrator": {
+                    "agent_name": "scheduler",
+                    "reply_mode": "async",
+                    "goal": "开始第一块学习",
+                    "constraints": {"now": "2026-03-06T08:40:00", "fatigue_level": "low"},
+                },
             },
         ),
         session_key="person:owner:direct",
     )
 
     assert ack is not None
-    assert "Job ID:" in ack.content
+    assert "scheduler task" in ack.content.lower()
 
     jobs = loop.primary_orchestrator.registry.list_jobs()
     assert len(jobs) == 1
@@ -181,25 +162,71 @@ async def test_gate_b_async_path_routes_finished_notification_via_channel_manage
 
     sent = manager.channels["feishu"].sent
     assert len(sent) == 1
-    assert sent[0].channel == "feishu"
     assert sent[0].chat_id == "ou_123"
-    assert sent[0].content == "gate-b async:remind later"
+    assert "学习提醒：开始第一块学习" in sent[0].content
     assert sent[0].metadata["notification"]["decision"]["deliver"] is True
 
 
 @pytest.mark.asyncio
-async def test_gate_b_missing_agent_falls_back_without_crashing(tmp_path: Path) -> None:
-    loop = _make_loop(tmp_path)
-    loop.primary_orchestrator.registry = loop.primary_orchestrator.registry.__class__()
+async def test_scheduler_event_path_delivers_due_reminder_once(tmp_path: Path) -> None:
+    orchestrator = _make_primary_orchestrator(tmp_path)
 
-    result = await loop.primary_orchestrator.handle_inbound(
+    sync_response = await orchestrator.handle_inbound(
         InboundMessage(
             channel="cli",
             sender_id="cli-user",
             chat_id="direct",
-            content="/delegate-sync gate-b-probe missing",
+            content="先生成计划",
+            metadata={
+                "person_id": "owner",
+                "identity": {"trusted": True, "surface_kind": "cli"},
+                "session": {"session_key": "person:owner:direct", "surface_id": "cli:direct"},
+                "orchestrator": {
+                    "agent_name": "scheduler",
+                    "reply_mode": "sync",
+                    "goal": "安排今天学习",
+                    "constraints": {
+                        "now": "2026-03-06T08:00:00",
+                        "plan_date": "2026-03-06",
+                        "time_blocks": [
+                            {"label": "晨间刷题", "start_at": "09:00", "end_at": "10:00"},
+                            {"label": "午前复盘", "start_at": "10:30", "end_at": "11:10"},
+                        ],
+                        "review_due_at": "11:40",
+                    },
+                },
+            },
         )
     )
 
-    assert result is None
+    assert sync_response is not None
 
+    first = await orchestrator.handle_event(
+        agent_name="scheduler",
+        goal="heartbeat check",
+        trigger="heartbeat",
+        channel="feishu",
+        chat_id="ou_123",
+        person_id="owner",
+        session_key="person:owner:direct",
+        surface_id="feishu:ou_123",
+        constraints={"now": "2026-03-06T12:00:00"},
+    )
+
+    assert first is not None
+    assert "学习提醒：" in first
+    assert "复盘提醒：" in first
+
+    second = await orchestrator.handle_event(
+        agent_name="scheduler",
+        goal="heartbeat check",
+        trigger="heartbeat",
+        channel="feishu",
+        chat_id="ou_123",
+        person_id="owner",
+        session_key="person:owner:direct",
+        surface_id="feishu:ou_123",
+        constraints={"now": "2026-03-06T12:05:00"},
+    )
+
+    assert second is None
