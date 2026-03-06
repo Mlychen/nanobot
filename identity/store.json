@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "people": [
+    {
+      "person_id": "owner",
+      "display_name": "Gate A Owner",
+      "primary_channel": "feishu",
+      "trusted_channels": [
+        "feishu",
+        "cli"
+      ],
+      "preferences": {
+        "gate_a_status": "pending_real_feishu_smoke"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "person_id": "owner",
+      "channel": "cli",
+      "external_user_id": "CodexSandboxOffline",
+      "is_verified": true
+    },
+    {
+      "person_id": "owner",
+      "channel": "feishu",
+      "external_user_id": "ou_320526746bf0a46e4a7f7978c0d9d0f6",
+      "is_verified": true
+    }
+  ]
+}
+

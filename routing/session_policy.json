@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "trusted_direct": {
+    "enabled": true,
+    "channels": [
+      "feishu",
+      "cli"
+    ]
+  }
+}

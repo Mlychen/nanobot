@@ -103,6 +103,15 @@ class IdentityStore:
                 return binding
         return None
 
+
+    def find_binding_for_person(self, person_id: str, channel: str) -> ChannelIdentity | None:
+        """Find a channel binding for a specific person."""
+
+        _, bindings = self.load()
+        for binding in bindings:
+            if binding.person_id == person_id and binding.channel == channel:
+                return binding
+        return None
     def upsert_person(self, person: Person) -> None:
         """Create or replace a person record."""
 
