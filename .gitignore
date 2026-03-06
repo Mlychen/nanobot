@@ -4,7 +4,15 @@
 *.pyc
 dist/
 build/
-docs/
+docs/*
+!docs/workpackages/
+docs/workpackages/*
+!docs/workpackages/WP06-SchedulerAgent.md
+!docs/workpackages/WP07-学习模式与技能.md
+!docs/学习助手并行执行规则.md
+!docs/学习助手第一阶段实施清单.md
+!docs/学习助手通用底座设计.md
+!docs/学习助手用户使用手册.md
 *.egg-info/
 *.egg
 *.pyc
