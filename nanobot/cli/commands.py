@@ -1,6 +1,7 @@
 """CLI commands for nanobot."""
 
 import asyncio
+import getpass
 import os
 import select
 import signal
@@ -492,12 +493,17 @@ def agent(
     from nanobot.bus.queue import MessageBus
     from nanobot.config.paths import get_cron_dir
     from nanobot.cron.service import CronService
+    from nanobot.identity import IdentityMapper, IdentityStore
+    from nanobot.routing import SessionPolicy, SessionPolicyStore
 
     config = _load_runtime_config(config, workspace)
     sync_workspace_templates(config.workspace_path)
 
     bus = MessageBus()
     provider = _make_provider(config)
+    identity_mapper = IdentityMapper(IdentityStore(config.workspace_path))
+    session_policy = SessionPolicy(SessionPolicyStore(config.workspace_path))
+    cli_sender_id = getpass.getuser()
 
     # Create cron service for tool usage (no callback needed for CLI unless running)
     cron_store_path = get_cron_dir() / "jobs.json"
@@ -546,8 +552,24 @@ def agent(
     if message:
         # Single message mode — direct call, no bus needed
         async def run_once():
+            base_metadata = identity_mapper.enrich_metadata("cli", cli_sender_id, {})
+            explicit_session = None if session_id == "cli:direct" else session_id
+            resolved_session = session_policy.resolve_session_key(
+                person_id=base_metadata.get("person_id"),
+                channel="cli",
+                chat_id="direct",
+                metadata=base_metadata,
+                explicit_session_key=explicit_session,
+            )
+            metadata = session_policy.enrich_metadata(base_metadata, resolved_session)
             with _thinking_ctx():
-                response = await agent_loop.process_direct(message, session_id, on_progress=_cli_progress)
+                response = await agent_loop.process_direct(
+                    message,
+                    resolved_session.session_key,
+                    sender_id=cli_sender_id,
+                    metadata=metadata,
+                    on_progress=_cli_progress,
+                )
             _print_agent_response(response, render_markdown=markdown)
             await agent_loop.close_mcp()
 
@@ -629,11 +651,24 @@ def agent(
                         turn_done.clear()
                         turn_response.clear()
 
+                        base_metadata = identity_mapper.enrich_metadata("cli", cli_sender_id, {})
+                        explicit_session = None if session_id == "cli:direct" else session_id
+                        resolved_session = session_policy.resolve_session_key(
+                            person_id=base_metadata.get("person_id"),
+                            channel=cli_channel,
+                            chat_id=cli_chat_id,
+                            metadata=base_metadata,
+                            explicit_session_key=explicit_session,
+                        )
+                        metadata = session_policy.enrich_metadata(base_metadata, resolved_session)
+
                         await bus.publish_inbound(InboundMessage(
                             channel=cli_channel,
-                            sender_id="user",
+                            sender_id=cli_sender_id,
                             chat_id=cli_chat_id,
                             content=user_input,
+                            metadata=metadata,
+                            session_key_override=resolved_session.session_key,
                         ))
 
                         with _thinking_ctx():

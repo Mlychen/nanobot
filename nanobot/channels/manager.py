@@ -11,6 +11,8 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Config
+from nanobot.identity import IdentityMapper, IdentityStore
+from nanobot.routing import SessionPolicy, SessionPolicyStore
 
 
 class ChannelManager:
@@ -28,6 +30,8 @@ class ChannelManager:
         self.bus = bus
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
+        self.identity_mapper = IdentityMapper(IdentityStore(config.workspace_path))
+        self.session_policy = SessionPolicy(SessionPolicyStore(config.workspace_path))
 
         self._init_channels()
 
@@ -151,6 +155,20 @@ class ChannelManager:
                 logger.warning("Matrix channel not available: {}", e)
 
         self._validate_allow_from()
+        self._attach_identity_mapper()
+        self._attach_session_policy()
+
+    def _attach_identity_mapper(self) -> None:
+        """Attach a shared identity mapper to all channels."""
+
+        for channel in self.channels.values():
+            setattr(channel, "identity_mapper", self.identity_mapper)
+
+    def _attach_session_policy(self) -> None:
+        """Attach a shared session policy to all channels."""
+
+        for channel in self.channels.values():
+            setattr(channel, "session_policy", self.session_policy)
 
     def _validate_allow_from(self) -> None:
         for name, ch in self.channels.items():

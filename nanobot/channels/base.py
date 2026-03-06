@@ -98,6 +98,23 @@ class BaseChannel(ABC):
             )
             return
 
+        identity_mapper = getattr(self, "identity_mapper", None)
+        if identity_mapper:
+            metadata = identity_mapper.enrich_metadata(self.name, str(sender_id), metadata)
+
+        session_policy = getattr(self, "session_policy", None)
+        resolved_session_key = session_key
+        if session_policy:
+            result = session_policy.resolve_session_key(
+                person_id=(metadata or {}).get("person_id"),
+                channel=self.name,
+                chat_id=str(chat_id),
+                metadata=metadata,
+                explicit_session_key=session_key,
+            )
+            metadata = session_policy.enrich_metadata(metadata, result)
+            resolved_session_key = result.session_key
+
         msg = InboundMessage(
             channel=self.name,
             sender_id=str(sender_id),
@@ -105,7 +122,7 @@ class BaseChannel(ABC):
             content=content,
             media=media or [],
             metadata=metadata or {},
-            session_key_override=session_key,
+            session_key_override=resolved_session_key,
         )
 
         await self.bus.publish_inbound(msg)
