@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Local Branch Status
+
+This worktree is for local customization and ongoing private maintenance.
+
+- Branch: `codex/local-feature` 
+- Worktree: `D:\Code\nanobot-local-feature` 
+- Primary goal: keep personal features here and periodically absorb useful fixes from `main`
+- Non-goal: shaping every change for upstream merge by default
+
+Read `LOCAL_BRANCH.md` before making structural decisions that trade off local needs against upstream cleanliness.
+
 ## Project Overview
 
 nanobot is an ultra-lightweight personal AI assistant framework (~4,000 lines of core agent code). It provides a multi-channel AI assistant that can interact via CLI, Telegram, Discord, Slack, WhatsApp, Feishu, Matrix, QQ, DingTalk, and Email.

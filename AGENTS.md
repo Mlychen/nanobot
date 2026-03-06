@@ -1,5 +1,16 @@
 # Repository Guidelines
 
+## Local Branch Status
+
+This worktree is a local customization branch, not an upstream-integration branch.
+
+- Branch: `codex/local-feature` 
+- Worktree: `D:\Code\nanobot-local-feature` 
+- Goal: maintain personal features locally and selectively absorb fixes from `main`
+- Default expectation: changes here do not need to be prepared for merge back to the main branch
+
+See `LOCAL_BRANCH.md` for the maintenance policy.
+
 ## Project Structure & Module Organization
 
 Core Python code lives in `nanobot/`. Key modules include `agent/` for the main loop and tools, `channels/` for chat platform adapters, `cli/` for the Typer entrypoint, `session/` and `memory/` logic under `agent/`, and newer cross-channel layers in `identity/` and `routing/`. Tests live in `tests/` and follow the runtime layout. Workspace and design docs are under `docs/`. The `bridge/` directory contains the Node-based WhatsApp bridge.
@@ -29,3 +40,4 @@ Recent history follows Conventional Commit style inside merge subjects, for exam
 ## Security & Configuration Tips
 
 Do not commit secrets, local workspace state, or personal `config.json` values. Prefer workspace-local extensions over broad schema changes when adding assistant-specific features. Preserve compatibility with existing `session_key` and channel metadata contracts unless a migration is explicitly planned.
+
