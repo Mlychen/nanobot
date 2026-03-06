@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import datetime as datetime_module
 from datetime import datetime as real_datetime
 from importlib.resources import files as pkg_files
 from pathlib import Path
-import datetime as datetime_module
 
 from nanobot.agent.context import ContextBuilder
 
@@ -71,3 +71,27 @@ def test_runtime_context_is_separate_untrusted_user_message(tmp_path) -> None:
     assert "Channel: cli" in user_content
     assert "Chat ID: direct" in user_content
     assert "Return exactly: OK" in user_content
+
+
+def test_selected_skills_are_injected_without_changing_default_prompt(tmp_path) -> None:
+    workspace = _make_workspace(tmp_path)
+    skill_dir = workspace / "skills" / "test-mode"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: test-mode\n"
+        "description: Test learning mode.\n"
+        "---\n\n"
+        "Always answer with a numbered structure.\n",
+        encoding="utf-8",
+    )
+
+    builder = ContextBuilder(workspace)
+
+    default_prompt = builder.build_system_prompt()
+    mode_prompt = builder.build_system_prompt(["test-mode"])
+
+    assert "# Current Learning Mode" not in default_prompt
+    assert "# Current Learning Mode" in mode_prompt
+    assert "### Skill: test-mode" in mode_prompt
+    assert "Always answer with a numbered structure." in mode_prompt

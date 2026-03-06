@@ -42,16 +42,49 @@ class ContextBuilder:
             if always_content:
                 parts.append(f"# Active Skills\n\n{always_content}")
 
+        selected_skills = self._build_selected_skills_section(skill_names)
+        if selected_skills:
+            parts.append(selected_skills)
+
         skills_summary = self.skills.build_skills_summary()
         if skills_summary:
             parts.append(f"""# Skills
 
 The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.
-Skills with available="false" need dependencies installed first - you can try installing them with apt/brew.
+Skills with available=\"false\" need dependencies installed first - you can try installing them with apt/brew.
 
 {skills_summary}""")
 
         return "\n\n---\n\n".join(parts)
+
+    def _build_selected_skills_section(self, skill_names: list[str] | None) -> str:
+        """Build the prompt section for explicitly activated skills."""
+
+        if not skill_names:
+            return ""
+
+        selected = list(dict.fromkeys(skill_names))
+        selected_content = self.skills.load_skills_for_context(selected)
+        if not selected_content:
+            return ""
+
+        lines = []
+        for name in selected:
+            metadata = self.skills.get_skill_metadata(name) or {}
+            description = metadata.get("description")
+            if description:
+                lines.append(f"- `{name}`: {description}")
+            else:
+                lines.append(f"- `{name}`")
+
+        summary = "\n".join(lines)
+        return (
+            "# Current Learning Mode\n\n"
+            "Apply the following active learning-mode skills for this turn only:\n"
+            f"{summary}\n\n"
+            "# Mode Skills\n\n"
+            f"{selected_content}"
+        )
 
     def _get_identity(self) -> str:
         """Get the core identity section."""

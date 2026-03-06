@@ -14,6 +14,7 @@ from loguru import logger
 
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryStore
+from nanobot.agent.modes import LearningModeManager
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
@@ -78,6 +79,7 @@ class AgentLoop:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.memory_window = memory_window
+        self.learning_modes = LearningModeManager()
         self.reasoning_effort = reasoning_effort
         self.brave_api_key = brave_api_key
         self.web_proxy = web_proxy
@@ -434,6 +436,20 @@ class AgentLoop:
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
 
+        if mode_command := self.learning_modes.handle_command(session, msg.content):
+            if mode_command.state_changed:
+                self.sessions.save(session)
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=mode_command.response,
+                metadata=self._reply_metadata(
+                    msg.metadata,
+                    origin_channel=msg.channel,
+                    origin_chat_id=msg.chat_id,
+                ),
+            )
+
         # Slash commands
         cmd = msg.content.strip().lower()
         if cmd == "/new":
@@ -471,6 +487,7 @@ class AgentLoop:
             finally:
                 self._consolidating.discard(session.key)
 
+            session.metadata.pop("learning_mode", None)
             session.clear()
             self.sessions.save(session)
             self.sessions.invalidate(session.key)
@@ -488,7 +505,16 @@ class AgentLoop:
             return OutboundMessage(
                 channel=msg.channel,
                 chat_id=msg.chat_id,
-                content="🐈 nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands",
+                content=(
+                    "🐈 nanobot commands:\n"
+                    "/new — Start a new conversation\n"
+                    "/stop — Stop the current task\n"
+                    "/help — Show available commands\n"
+                    "/shenlun — Enter Shenlun mode\n"
+                    "/xingce — Enter Xingce drill mode\n"
+                    "/mode status — Show the current learning mode\n"
+                    "/mode exit — Return to normal mode"
+                ),
                 metadata=self._reply_metadata(
                     msg.metadata,
                     origin_channel=msg.channel,
@@ -520,9 +546,11 @@ class AgentLoop:
                 message_tool.start_turn()
 
         history = session.get_history(max_messages=self.memory_window)
+        active_mode = self.learning_modes.get_active_mode(session)
         initial_messages = self.context.build_messages(
             history=history,
             current_message=msg.content,
+            skill_names=list(active_mode.skill_names) if active_mode else None,
             media=msg.media if msg.media else None,
             channel=msg.channel, chat_id=msg.chat_id,
         )
@@ -631,6 +659,8 @@ class AgentLoop:
         )
         response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""
+
+
 
 
 
