@@ -8,8 +8,10 @@ This worktree is a local customization branch, not an upstream-integration branc
 - Worktree: `D:\Code\nanobot-local-feature` 
 - Goal: maintain personal features locally and selectively absorb fixes from `main`
 - Default expectation: changes here do not need to be prepared for merge back to the main branch
+- Remote layout: `upstream` is `HKUDS/nanobot`, `origin` is the personal fork `Mlychen/nanobot`
+- Branch tracking: local `main` tracks `upstream/main`; `codex/local-feature` tracks `origin/codex/local-feature`
 
-See `LOCAL_BRANCH.md` for the maintenance policy.
+See `LOCAL_BRANCH.md` for the maintenance policy and sync workflow.
 
 ## Project Structure & Module Organization
 
