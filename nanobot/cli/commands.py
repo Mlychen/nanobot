@@ -284,24 +284,35 @@ def _load_runtime_config(config: str | None = None, workspace: str | None = None
     return loaded
 
 
-def _domain_agent_factories(workspace: Path):
+def _domain_agent_factories(workspace: Path, config: Config | None = None):
     """Return deferred domain-agent factories for the current runtime."""
     from nanobot.agent.domain.gate_b_probe import create_gate_b_probe_agent
     from nanobot.agent.domain.scheduler_agent import create_scheduler_agent
 
-    return (
+    factories = [
         create_gate_b_probe_agent,
         lambda: create_scheduler_agent(workspace),
-    )
+    ]
+    if config is not None and config.tools.lightrag.enabled:
+        from nanobot.agent.domain.knowledge_agent import create_knowledge_agent
+
+        factories.append(
+            lambda: create_knowledge_agent(
+                workspace,
+                config.tools.lightrag,
+                restrict_to_workspace=config.tools.restrict_to_workspace,
+            )
+        )
+    return tuple(factories)
 
 
 
-def _make_primary_orchestrator(workspace: Path):
+def _make_primary_orchestrator(workspace: Path, config: Config | None = None):
     """Create the primary orchestrator from the WP04 runtime assembly entrypoint."""
     from nanobot.agent.domain import create_domain_registry
     from nanobot.agent.primary import PrimaryAgentOrchestrator
 
-    registry = create_domain_registry(factories=_domain_agent_factories(workspace))
+    registry = create_domain_registry(factories=_domain_agent_factories(workspace, config))
     return PrimaryAgentOrchestrator(registry)
 
 
@@ -344,7 +355,7 @@ def gateway(
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_cron_dir() / "jobs.json"
     cron = CronService(cron_store_path)
-    primary_orchestrator = _make_primary_orchestrator(config.workspace_path)
+    primary_orchestrator = _make_primary_orchestrator(config.workspace_path, config)
 
     # Create agent with cron service
     agent = AgentLoop(
@@ -361,6 +372,7 @@ def gateway(
         web_proxy=config.tools.web.proxy or None,
         exec_config=config.tools.exec,
         cron_service=cron,
+        lightrag_config=config.tools.lightrag,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
@@ -597,7 +609,7 @@ def agent(
     # Create cron service for tool usage (no callback needed for CLI unless running)
     cron_store_path = get_cron_dir() / "jobs.json"
     cron = CronService(cron_store_path)
-    primary_orchestrator = _make_primary_orchestrator(config.workspace_path)
+    primary_orchestrator = _make_primary_orchestrator(config.workspace_path, config)
 
     if logs:
         logger.enable("nanobot")
@@ -618,6 +630,7 @@ def agent(
         web_proxy=config.tools.web.proxy or None,
         exec_config=config.tools.exec,
         cron_service=cron,
+        lightrag_config=config.tools.lightrag,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
@@ -1100,17 +1113,3 @@ def _login_github_copilot() -> None:
 
 if __name__ == "__main__":
     app()
-
-
-
-
-
-
-
-
-
-
-
-
-
-

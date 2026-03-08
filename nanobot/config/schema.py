@@ -302,8 +302,21 @@ class WebToolsConfig(Base):
     search: WebSearchConfig = Field(default_factory=WebSearchConfig)
 
 
+class LightRAGConfig(Base):
+    """LightRAG server integration configuration."""
+
+    enabled: bool = False
+    base_url: str = "http://127.0.0.1:9621"
+    api_key: str = ""
+    timeout: int = 30
+    default_query_mode: str = "hybrid"
+    default_top_k: int = 10
+    default_only_need_context: bool = False
+
+
 class ExecToolConfig(Base):
     """Shell exec tool configuration."""
+
 
     timeout: int = 60
     path_append: str = ""
@@ -325,6 +338,7 @@ class ToolsConfig(Base):
     """Tools configuration."""
 
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
+    lightrag: LightRAGConfig = Field(default_factory=LightRAGConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)

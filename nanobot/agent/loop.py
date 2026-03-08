@@ -18,6 +18,7 @@ from nanobot.agent.modes import LearningModeManager
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
+from nanobot.agent.tools.lightrag import LightRAGIngestTool, LightRAGQueryTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
@@ -30,7 +31,7 @@ from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
     from nanobot.agent.primary import PrimaryAgentOrchestrator
-    from nanobot.config.schema import ChannelsConfig, ExecToolConfig
+    from nanobot.config.schema import ChannelsConfig, ExecToolConfig, LightRAGConfig
     from nanobot.cron.service import CronService
 
 
@@ -63,13 +64,15 @@ class AgentLoop:
         web_proxy: str | None = None,
         exec_config: ExecToolConfig | None = None,
         cron_service: CronService | None = None,
+        lightrag_config: LightRAGConfig | None = None,
         restrict_to_workspace: bool = False,
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
         primary_orchestrator: PrimaryAgentOrchestrator | None = None,
     ):
-        from nanobot.config.schema import ExecToolConfig
+        from nanobot.config.schema import ExecToolConfig, LightRAGConfig
+
         self.bus = bus
         self.channels_config = channels_config
         self.provider = provider
@@ -85,6 +88,7 @@ class AgentLoop:
         self.web_proxy = web_proxy
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
+        self.lightrag_config = lightrag_config or LightRAGConfig()
         self.restrict_to_workspace = restrict_to_workspace
 
         self.context = ContextBuilder(workspace)
@@ -130,6 +134,15 @@ class AgentLoop:
         ))
         self.tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
         self.tools.register(WebFetchTool(proxy=self.web_proxy))
+        if self.lightrag_config.enabled:
+            self.tools.register(LightRAGQueryTool(self.lightrag_config))
+            self.tools.register(
+                LightRAGIngestTool(
+                    self.lightrag_config,
+                    workspace=self.workspace,
+                    allowed_dir=allowed_dir,
+                )
+            )
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
@@ -659,9 +672,3 @@ class AgentLoop:
         )
         response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""
-
-
-
-
-
-
