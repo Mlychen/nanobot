@@ -230,3 +230,5 @@ async def test_scheduler_event_path_delivers_due_reminder_once(tmp_path: Path) -
     )
 
     assert second is None
+
+

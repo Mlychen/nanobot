@@ -189,3 +189,24 @@ async def test_channel_manager_keeps_legacy_outbound_unchanged(tmp_path) -> None
 
     assert len(channel.sent) == 1
     assert channel.sent[0].chat_id == "oc_legacy"
+    assert channel.sent[0].content == "[\u56de\u590d] legacy"
+
+async def test_channel_manager_marks_progress_outbound_for_users(tmp_path) -> None:
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path)
+    bus = MessageBus()
+    manager = ChannelManager(config, bus)
+    channel = RecordingChannel("feishu", bus)
+    manager.channels = {"feishu": channel}
+
+    progress = OutboundMessage(
+        channel="feishu",
+        chat_id="oc_progress",
+        content="Teaching F1 is mounting: knowledge.current_item",
+        metadata={"_progress": True},
+    )
+    await _dispatch_single(manager, bus, progress)
+
+    assert len(channel.sent) == 1
+    assert channel.sent[0].content == "[\u8fdb\u5ea6] Teaching F1 is mounting: knowledge.current_item"
+

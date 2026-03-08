@@ -254,7 +254,7 @@ class ChannelManager:
                 channel = self.channels.get(routed.channel)
                 if channel:
                     try:
-                        await channel.send(routed)
+                        await channel.send(self._decorate_outbound_message(routed))
                     except Exception as e:
                         logger.error("Error sending to {}: {}", routed.channel, e)
                 else:
@@ -264,6 +264,18 @@ class ChannelManager:
                 continue
             except asyncio.CancelledError:
                 break
+
+    @staticmethod
+    def _decorate_outbound_message(msg: OutboundMessage) -> OutboundMessage:
+        """Add an explicit text-layer marker so users can distinguish progress from final replies."""
+
+        metadata = msg.metadata if isinstance(msg.metadata, dict) else {}
+        marker = "[\u8fdb\u5ea6]" if metadata.get("_progress") else "[\u56de\u590d]"
+        content = msg.content or ""
+        if content.startswith(f"{marker} ") or content == marker:
+            return msg
+        decorated = f"{marker} {content}".rstrip()
+        return replace(msg, content=decorated)
 
     def _route_outbound_message(self, msg: OutboundMessage) -> OutboundMessage | None:
         """Apply notification routing before handing off to a channel sender."""
@@ -310,3 +322,5 @@ class ChannelManager:
     def enabled_channels(self) -> list[str]:
         """Get list of enabled channel names."""
         return list(self.channels.keys())
+
+

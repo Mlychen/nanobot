@@ -183,7 +183,7 @@ async def test_gate_b_async_path_routes_finished_notification_via_channel_manage
     assert len(sent) == 1
     assert sent[0].channel == "feishu"
     assert sent[0].chat_id == "ou_123"
-    assert sent[0].content == "gate-b async:remind later"
+    assert sent[0].content == "[\u56de\u590d] gate-b async:remind later"
     assert sent[0].metadata["notification"]["decision"]["deliver"] is True
 
 
@@ -202,4 +202,6 @@ async def test_gate_b_missing_agent_falls_back_without_crashing(tmp_path: Path) 
     )
 
     assert result is None
+
+
 
