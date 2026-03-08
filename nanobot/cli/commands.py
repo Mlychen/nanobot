@@ -316,6 +316,21 @@ def _make_primary_orchestrator(workspace: Path, config: Config | None = None):
     return PrimaryAgentOrchestrator(registry)
 
 
+def _make_teaching_orchestrator(workspace: Path, provider, config: Config):
+    """Create the first-slice teaching orchestrator with placeholder downstream services."""
+    from nanobot.teaching import create_teaching_orchestrator
+
+    return create_teaching_orchestrator(
+        provider,
+        workspace,
+        model=config.agents.defaults.model,
+        temperature=config.agents.defaults.temperature,
+        max_tokens=config.agents.defaults.max_tokens,
+        reasoning_effort=config.agents.defaults.reasoning_effort,
+        teacher_core_prompt_components=config.agents.teaching.teacher_core_prompt_components,
+    )
+
+
 # ============================================================================
 # Gateway / Server
 # ============================================================================
@@ -355,7 +370,7 @@ def gateway(
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_cron_dir() / "jobs.json"
     cron = CronService(cron_store_path)
-    primary_orchestrator = _make_primary_orchestrator(config.workspace_path, config)
+    teaching_orchestrator = _make_teaching_orchestrator(config.workspace_path, provider, config)
 
     # Create agent with cron service
     agent = AgentLoop(
@@ -377,7 +392,7 @@ def gateway(
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
-        primary_orchestrator=primary_orchestrator,
+        teaching_orchestrator=teaching_orchestrator,
     )
 
     # Set cron callback (needs agent)
@@ -609,7 +624,7 @@ def agent(
     # Create cron service for tool usage (no callback needed for CLI unless running)
     cron_store_path = get_cron_dir() / "jobs.json"
     cron = CronService(cron_store_path)
-    primary_orchestrator = _make_primary_orchestrator(config.workspace_path, config)
+    teaching_orchestrator = _make_teaching_orchestrator(config.workspace_path, provider, config)
 
     if logs:
         logger.enable("nanobot")
@@ -634,7 +649,7 @@ def agent(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
-        primary_orchestrator=primary_orchestrator,
+        teaching_orchestrator=teaching_orchestrator,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on
@@ -1113,3 +1128,5 @@ def _login_github_copilot() -> None:
 
 if __name__ == "__main__":
     app()
+
+

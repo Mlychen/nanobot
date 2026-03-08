@@ -42,7 +42,7 @@ class ContextBuilder:
             if always_content:
                 parts.append(f"# Active Skills\n\n{always_content}")
 
-        selected_skills = self._build_selected_skills_section(skill_names)
+        selected_skills = self.build_selected_skills_section(skill_names)
         if selected_skills:
             parts.append(selected_skills)
 
@@ -57,7 +57,7 @@ Skills with available=\"false\" need dependencies installed first - you can try 
 
         return "\n\n---\n\n".join(parts)
 
-    def _build_selected_skills_section(self, skill_names: list[str] | None) -> str:
+    def build_selected_skills_section(self, skill_names: list[str] | None) -> str:
         """Build the prompt section for explicitly activated skills."""
 
         if not skill_names:
@@ -85,6 +85,11 @@ Skills with available=\"false\" need dependencies installed first - you can try 
             "# Mode Skills\n\n"
             f"{selected_content}"
         )
+
+    def _build_selected_skills_section(self, skill_names: list[str] | None) -> str:
+        """Backward-compatible alias for selected learning-mode prompt injection."""
+
+        return self.build_selected_skills_section(skill_names)
 
     def _get_identity(self) -> str:
         """Get the core identity section."""

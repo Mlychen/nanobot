@@ -234,10 +234,23 @@ class AgentDefaults(Base):
     reasoning_effort: str | None = None  # low / medium / high — enables LLM thinking mode
 
 
+class TeachingAgentConfig(Base):
+    """Teaching-runtime configuration."""
+
+    teacher_core_prompt_components: list[str] = Field(
+        default_factory=lambda: [
+            "teacher_identity",
+            "selected_skills",
+            "teaching_contract",
+        ]
+    )  # Ordered Teacher Core prompt components. Sequence controls final prompt assembly.
+
+
 class AgentsConfig(Base):
     """Agent configuration."""
 
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
+    teaching: TeachingAgentConfig = Field(default_factory=TeachingAgentConfig)
 
 
 class ProviderConfig(Base):

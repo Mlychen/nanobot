@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from nanobot.agent.primary import PrimaryAgentOrchestrator
     from nanobot.config.schema import ChannelsConfig, ExecToolConfig, LightRAGConfig
     from nanobot.cron.service import CronService
+    from nanobot.teaching.f1 import TeachingF1Orchestrator
 
 
 class AgentLoop:
@@ -70,6 +71,7 @@ class AgentLoop:
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
         primary_orchestrator: PrimaryAgentOrchestrator | None = None,
+        teaching_orchestrator: TeachingF1Orchestrator | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig, LightRAGConfig
 
@@ -94,6 +96,7 @@ class AgentLoop:
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
         self.primary_orchestrator = primary_orchestrator
+        self.teaching_orchestrator = teaching_orchestrator
         self.tools = ToolRegistry()
         self.subagents = SubagentManager(
             provider=provider,
@@ -409,17 +412,16 @@ class AgentLoop:
         on_progress: Callable[[str], Awaitable[None]] | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
-        if self.primary_orchestrator:
-            orchestrated = await self.primary_orchestrator.handle_inbound(
-                msg,
-                on_progress=on_progress,
-            )
-            if orchestrated is not None:
-                return orchestrated
-        # System messages: parse origin from chat_id ("channel:chat_id")
+        # System messages still use the legacy single-pass loop in the first slice.
         if msg.channel == "system":
-            channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id
-                                else ("cli", msg.chat_id))
+            if self.primary_orchestrator:
+                orchestrated = await self.primary_orchestrator.handle_inbound(
+                    msg,
+                    on_progress=on_progress,
+                )
+                if orchestrated is not None:
+                    return orchestrated
+            channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id else ("cli", msg.chat_id))
             logger.info("Processing system message from {}", msg.sender_id)
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
@@ -427,7 +429,9 @@ class AgentLoop:
             history = session.get_history(max_messages=self.memory_window)
             messages = self.context.build_messages(
                 history=history,
-                current_message=msg.content, channel=channel, chat_id=chat_id,
+                current_message=msg.content,
+                channel=channel,
+                chat_id=chat_id,
             )
             final_content, _, all_msgs = await self._run_agent_loop(messages)
             self._save_turn(session, all_msgs, 1 + len(history))
@@ -463,7 +467,7 @@ class AgentLoop:
                 ),
             )
 
-        # Slash commands
+        # Slash commands remain deterministic and bypass the teaching runtime.
         cmd = msg.content.strip().lower()
         if cmd == "/new":
             lock = self._consolidation_locks.setdefault(session.key, asyncio.Lock())
@@ -535,8 +539,16 @@ class AgentLoop:
                 ),
             )
 
+        if self.primary_orchestrator:
+            orchestrated = await self.primary_orchestrator.handle_inbound(
+                msg,
+                on_progress=on_progress,
+            )
+            if orchestrated is not None:
+                return orchestrated
+
         unconsolidated = len(session.messages) - session.last_consolidated
-        if (unconsolidated >= self.memory_window and session.key not in self._consolidating):
+        if unconsolidated >= self.memory_window and session.key not in self._consolidating:
             self._consolidating.add(session.key)
             lock = self._consolidation_locks.setdefault(session.key, asyncio.Lock())
 
@@ -558,15 +570,8 @@ class AgentLoop:
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
 
-        history = session.get_history(max_messages=self.memory_window)
         active_mode = self.learning_modes.get_active_mode(session)
-        initial_messages = self.context.build_messages(
-            history=history,
-            current_message=msg.content,
-            skill_names=list(active_mode.skill_names) if active_mode else None,
-            media=msg.media if msg.media else None,
-            channel=msg.channel, chat_id=msg.chat_id,
-        )
+        active_skill_names = list(active_mode.skill_names) if active_mode else None
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
             meta = dict(msg.metadata or {})
@@ -583,8 +588,46 @@ class AgentLoop:
                 ),
             ))
 
+        if self.teaching_orchestrator:
+            teaching_result = await self.teaching_orchestrator.handle_inbound(
+                msg,
+                session,
+                on_progress=on_progress or _bus_progress,
+                skill_names=active_skill_names,
+            )
+            if teaching_result is not None:
+                self._save_teaching_turn(session, msg, teaching_result)
+                self.sessions.save(session)
+                metadata = self._reply_metadata(
+                    msg.metadata,
+                    origin_channel=msg.channel,
+                    origin_chat_id=msg.chat_id,
+                )
+                metadata["teaching"] = {
+                    "trace_id": teaching_result.task.envelope.trace_id,
+                    "event_type": teaching_result.task.envelope.event_type.value,
+                    "response_type": teaching_result.response.response_type.value,
+                }
+                return OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    content=teaching_result.response.text,
+                    metadata=metadata,
+                )
+
+        history = session.get_history(max_messages=self.memory_window)
+        initial_messages = self.context.build_messages(
+            history=history,
+            current_message=msg.content,
+            skill_names=active_skill_names,
+            media=msg.media if msg.media else None,
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+        )
+
         final_content, _, all_msgs = await self._run_agent_loop(
-            initial_messages, on_progress=on_progress or _bus_progress,
+            initial_messages,
+            on_progress=on_progress or _bus_progress,
         )
 
         if final_content is None:
@@ -609,6 +652,20 @@ class AgentLoop:
             ),
         )
 
+    def _save_teaching_turn(self, session: Session, msg: InboundMessage, result) -> None:
+        """Persist the compact teaching-turn record into session history."""
+        session.add_message("user", msg.content)
+        session.add_message(
+            "assistant",
+            result.response.text,
+            teaching={
+                "trace_id": result.task.envelope.trace_id,
+                "event_type": result.task.envelope.event_type.value,
+                "diagnosis": result.diagnosis,
+                "proposed_state_updates": result.proposed_state_updates,
+                "proposed_plan_updates": result.proposed_plan_updates,
+            },
+        )
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
         """Save new-turn messages into session, truncating large tool results."""
         from datetime import datetime
@@ -672,3 +729,4 @@ class AgentLoop:
         )
         response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""
+
