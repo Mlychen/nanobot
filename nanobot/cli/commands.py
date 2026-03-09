@@ -175,7 +175,6 @@ def onboard():
     from nanobot.config.schema import Config
 
     config_path = get_config_path()
-
     if config_path.exists():
         console.print(f"[yellow]Config already exists at {config_path}[/yellow]")
         console.print("  [bold]y[/bold] = overwrite with defaults (existing values will be lost)")
@@ -1128,5 +1127,7 @@ def _login_github_copilot() -> None:
 
 if __name__ == "__main__":
     app()
+
+
 
 
