@@ -1,25 +1,13 @@
-x-common-config: &common-config
-  build:
-    context: .
-    dockerfile: Dockerfile
-  volumes:
-    - ~/.nanobot:/home/nanobot/.nanobot
-  cap_drop:
-    - ALL
-  cap_add:
-    - SYS_ADMIN
-  security_opt:
-    - apparmor=unconfined
-    - seccomp=unconfined
-
 services:
   nanobot-gateway:
+    image: ${NANOBOT_IMAGE:-ghcr.io/Mlychen/nanobot:edge}
     container_name: nanobot-gateway
-    <<: *common-config
     command: ["gateway"]
     restart: unless-stopped
     ports:
       - 18790:18790
+    volumes:
+      - ~/.nanobot:/home/nanobot/.nanobot
     deploy:
       resources:
         limits:
@@ -30,13 +18,15 @@ services:
           memory: 256M
 
   nanobot-api:
+    image: ${NANOBOT_IMAGE:-ghcr.io/Mlychen/nanobot:edge}
     container_name: nanobot-api
-    <<: *common-config
     command:
       ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace"]
     restart: unless-stopped
     ports:
       - 127.0.0.1:8900:8900
+    volumes:
+      - ~/.nanobot:/home/nanobot/.nanobot
     deploy:
       resources:
         limits:
@@ -47,9 +37,11 @@ services:
           memory: 256M
 
   nanobot-cli:
-    <<: *common-config
+    image: ${NANOBOT_IMAGE:-ghcr.io/Mlychen/nanobot:edge}
     profiles:
       - cli
     command: ["status"]
     stdin_open: true
     tty: true
+    volumes:
+      - ~/.nanobot:/home/nanobot/.nanobot

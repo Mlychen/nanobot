@@ -11,6 +11,8 @@
 *.pyd
 *.pyw
 *.pyz
+*.pywz
+*.pyzz
 __pycache__/
 *.egg-info/
 *.egg
@@ -84,3 +86,12 @@ logs/
 tmp/
 temp/
 *.tmp
+
+# Local customizations
+CLAUDE.md
+start.bat
+start.ps1
+start.sh
+docs/fixes/
+nanobot/skills/timeline-memory/
+nanobot/skills/miniflux-http/

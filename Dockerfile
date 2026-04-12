@@ -1,6 +1,6 @@
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS base
 
-# Install Node.js 20 for the WhatsApp bridge
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg git bubblewrap openssh-client && \
     mkdir -p /etc/apt/keyrings && \
@@ -25,11 +25,15 @@ COPY nanobot/ nanobot/
 COPY bridge/ bridge/
 RUN uv pip install --system --no-cache .
 
-# Build the WhatsApp bridge
-WORKDIR /app/bridge
-RUN git config --global --add url."https://github.com/".insteadOf ssh://git@github.com/ && \
-    git config --global --add url."https://github.com/".insteadOf git@github.com: && \
-    npm install && npm run build
+# Build the WhatsApp bridge (optional)
+ARG BUILD_BRIDGE=0
+RUN if [ "$BUILD_BRIDGE" = "1" ]; then \
+        cd /app/bridge && \
+        git config --global --add url."https://github.com/".insteadOf ssh://git@github.com/ && \
+        git config --global --add url."https://github.com/".insteadOf git@github.com: && \
+        npm install && npm run build; \
+    fi
+
 WORKDIR /app
 
 # Create non-root user and config directory

@@ -1,13 +1,56 @@
+# Python
 __pycache__
 *.pyc
 *.pyo
 *.pyd
 *.egg-info
+*.pyz
+*.pywz
+*.pyzz
+
+# Build outputs
 dist/
 build/
+
+# VCS
 .git
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
 .env
+.env.*
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific
 .assets
-node_modules/
-bridge/dist/
+.docs
+.web
+worktrees/
+
+# Docker
+docker-compose*.yml
+
+# Docs & test artifacts
+docs/fixes/
 workspace/
+tests/fixtures/
+*.log
+botpy.log
+
+# Claude Code
+CLAUDE.md
+start.bat
+start.ps1
+start.sh
+nanobot/skills/
