@@ -1,0 +1,37 @@
+services:
+  nanobot-gateway:
+    image: mymc/nanobot:edge
+    container_name: nanobot-gateway
+    command: ["gateway"]
+    restart: unless-stopped
+    ports:
+      - 18790:18790
+    volumes:
+      - H:/nanobot/data/.nanobot:/home/nanobot/.nanobot
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+
+  nanobot-api:
+    image: mymc/nanobot:edge
+    container_name: nanobot-api
+    command:
+      ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace"]
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:8900:8900
+    volumes:
+      - H:/nanobot/data/.nanobot:/home/nanobot/.nanobot
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
