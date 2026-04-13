@@ -1,0 +1,11 @@
+{
+  "turn_id": "cli:direct:20260407-124100",
+  "user_text": "测试事项 - 下午 5 点喝杯水",
+  "thread": {
+    "thread_kind": "task",
+    "title": "下午 5 点喝杯水",
+    "status": "planned",
+    "plan_time": "2026-04-07T17:00:00+08:00",
+    "content": "测试事项 - 下午 5 点喝杯水"
+  }
+}
