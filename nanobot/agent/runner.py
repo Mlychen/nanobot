@@ -287,12 +287,11 @@ class AgentRunner:
                     results, new_events, fatal_error = [], [], None
 
                 # Merge results in original order
-                final_results: list[Any] = []
-                for tool_call in response.tool_calls:
-                    if tool_call.id in blocked_results_map:
-                        final_results.append(blocked_results_map[tool_call.id])
-                    else:
-                        final_results.append(results.pop(0))
+                result_iter = iter(results)
+                final_results: list[Any] = [
+                    blocked_results_map[tc.id] if tc.id in blocked_results_map else next(result_iter)
+                    for tc in response.tool_calls
+                ]
 
                 # Record history for next iteration's circuit breaker check
                 for i, tool_call in enumerate(response.tool_calls):
@@ -988,8 +987,14 @@ class AgentRunner:
           ``"Error: Command blocked by safety guard..."``
         - _run_tool exception wrapping: ``"Error: {Type}: {msg}\\n\\n[Analyze...]"``
         - lookup errors: ``"Error: repeated external lookup blocked..."``
-        - Normal results never start with ``"Error"`` (exec output contains
-          stdout/stderr/Exit code lines).
+
+        Caveat: legitimate tool output that begins with ``"Error"`` (e.g.,
+        ``grep "Error" logfile``) will be misclassified as a failure.  This
+        is a known false-positive trade-off — the circuit breaker prefers
+        over-blocking to under-blocking on repeated failures.  If this
+        becomes a practical issue, tools whose normal output can start with
+        ``"Error"`` should prefix their success results with a non-Error
+        marker or use a structured result envelope.
         """
         if isinstance(result, str):
             return not result.startswith("Error")

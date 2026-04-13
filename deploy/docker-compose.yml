@@ -6,6 +6,12 @@ services:
     restart: unless-stopped
     ports:
       - 18790:18790
+    environment:
+      - QWEN_API_KEY
+      - FEISHU_APP_ID
+      - FEISHU_APP_SECRET
+      - MINIFLUX_URL
+      - MINIFLUX_API_KEY
     volumes:
       - H:/nanobot/data/.nanobot:/home/nanobot/.nanobot
     deploy:
@@ -25,6 +31,12 @@ services:
     restart: unless-stopped
     ports:
       - 127.0.0.1:8900:8900
+    environment:
+      - QWEN_API_KEY
+      - FEISHU_APP_ID
+      - FEISHU_APP_SECRET
+      - MINIFLUX_URL
+      - MINIFLUX_API_KEY
     volumes:
       - H:/nanobot/data/.nanobot:/home/nanobot/.nanobot
     deploy:

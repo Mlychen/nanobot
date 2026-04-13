@@ -341,3 +341,149 @@ class TestCircuitBreakerIntegration:
 
         # Only 2 tool events (blocked call does not produce an event)
         assert len(result.tool_events) == 2
+
+    @pytest.mark.asyncio
+    async def test_concurrent_mixed_blocked_and_allowed(self):
+        """When a single LLM response contains multiple tool calls, some
+        blocked (repeated failure) and some allowed, all execute correctly
+        and results are merged in the original order."""
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        call_count = {"n": 0}
+
+        async def chat_with_retry(*, messages, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                # First iteration: two different failing tool calls
+                return LLMResponse(
+                    content="",
+                    tool_calls=[
+                        ToolCallRequest(
+                            id="call_1a",
+                            name="exec",
+                            arguments={"command": "git clone x"},
+                        ),
+                        ToolCallRequest(
+                            id="call_1b",
+                            name="exec",
+                            arguments={"command": "git clone y"},
+                        ),
+                    ],
+                    usage={},
+                )
+            if call_count["n"] == 2:
+                # Second iteration: both fail again
+                return LLMResponse(
+                    content="",
+                    tool_calls=[
+                        ToolCallRequest(
+                            id="call_2a",
+                            name="exec",
+                            arguments={"command": "git clone x"},
+                        ),
+                        ToolCallRequest(
+                            id="call_2b",
+                            name="exec",
+                            arguments={"command": "git clone y"},
+                        ),
+                    ],
+                    usage={},
+                )
+            if call_count["n"] == 3:
+                # Third iteration: git clone x is blocked, git clone y is blocked,
+                # but a new 'ls' call should execute
+                return LLMResponse(
+                    content="",
+                    tool_calls=[
+                        ToolCallRequest(
+                            id="call_3a",
+                            name="exec",
+                            arguments={"command": "git clone x"},
+                        ),
+                        ToolCallRequest(
+                            id="call_3b",
+                            name="exec",
+                            arguments={"command": "ls"},
+                        ),
+                    ],
+                    usage={},
+                )
+            return LLMResponse(content="done", tool_calls=[], usage={})
+
+        provider.chat_with_retry = chat_with_retry
+        tools = self._make_registry(fail=True)
+        execute_spy = tools.execute
+
+        runner = AgentRunner(provider)
+        result = await runner.run(AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "clone repos"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=5,
+            max_tool_result_chars=8000,
+            concurrent_tools=True,
+        ))
+
+        # Iteration 0: git clone x + git clone y = 2 executions
+        # Iteration 1: git clone x + git clone y = 2 more (total 4)
+        #   history alternates [x_fail, y_fail, x_fail, y_fail] — different
+        #   signatures dilute the consecutive check, so neither is blocked yet
+        # Iteration 2: git clone x + ls = 2 more (total 6)
+        # Iteration 3: LLM returns final response, no tool calls
+        assert execute_spy.call_count == 6
+        # Verify "ls" was called
+        call_args = [str(c) for c in execute_spy.call_args_list]
+        assert any("ls" in c for c in call_args)
+        assert result.final_content == "done"
+
+    @pytest.mark.asyncio
+    async def test_concurrent_same_response_duplicates(self):
+        """When a single response contains two identical tool calls (same
+        signature), both are allowed on first attempt but would be blocked
+        on subsequent iterations if they keep failing."""
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        call_count = {"n": 0}
+
+        async def chat_with_retry(*, messages, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                # Two identical calls in one response — both allowed first time
+                return LLMResponse(
+                    content="",
+                    tool_calls=[
+                        ToolCallRequest(id="call_dup1", name="exec", arguments={"command": "git clone x"}),
+                        ToolCallRequest(id="call_dup2", name="exec", arguments={"command": "git clone x"}),
+                    ],
+                    usage={},
+                )
+            if call_count["n"] == 2:
+                # Both failed in iteration 0, so iteration 1 has 2 failures
+                # in history for this signature → circuit breaker triggers
+                return LLMResponse(
+                    content="",
+                    tool_calls=[
+                        ToolCallRequest(id="call_dup3", name="exec", arguments={"command": "git clone x"}),
+                    ],
+                    usage={},
+                )
+            return LLMResponse(content="gave up", tool_calls=[], usage={})
+
+        provider.chat_with_retry = chat_with_retry
+        tools = self._make_registry(fail=True)
+        execute_spy = tools.execute
+
+        runner = AgentRunner(provider)
+        result = await runner.run(AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "clone twice"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=4,
+            max_tool_result_chars=8000,
+            concurrent_tools=True,
+        ))
+
+        # Iteration 0: 2 executions (both identical, both allowed)
+        # Iteration 1: blocked (2 failures in history → 3rd attempt blocked)
+        # Iteration 2: LLM returns "gave up" with no tool calls, loop exits
+        assert execute_spy.call_count == 2
