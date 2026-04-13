@@ -2,7 +2,7 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: [main]
+    branches: [main, local/deploy]
   release:
     types: [published]
   pull_request:
@@ -77,7 +77,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
             mymc/nanobot
           tags: |
-            type=raw,value=edge,enable={{is_default_branch}}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/local/deploy' }}
             type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/') }}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
 
