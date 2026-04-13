@@ -19,11 +19,11 @@
       "appSecret": "${FEISHU_APP_SECRET}",
       "encryptKey": "",
       "verificationToken": "",
-      "allowFrom": ["ou_320526746bf0a46e4a7f7978c0d9d0f6"]
+      "allowFrom": []
     },
     "weixin": {
       "enabled": true,
-      "allowFrom": ["o9cq804Ye3q8NOIp1k2wvjxd_YJY@im.wechat"]
+      "allowFrom": []
     },
     "telegram": {
       "enabled": false,
