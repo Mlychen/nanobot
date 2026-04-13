@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 import inspect
+import json
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,8 @@ _COMPACTABLE_TOOLS = frozenset({
     "web_search", "web_fetch", "list_dir",
 })
 _BACKFILL_CONTENT = "[Tool result unavailable — call was interrupted or lost]"
+_MAX_REPEATED_TOOL_FAILURES = 3
+_TOOL_CALL_HISTORY_SIZE = 20
 
 
 
@@ -193,6 +196,7 @@ class AgentRunner:
         length_recovery_count = 0
         had_injections = False
         injection_cycles = 0
+        tool_call_history: list[dict[str, Any]] = []
 
         for iteration in range(spec.max_iterations):
             try:
@@ -255,16 +259,59 @@ class AgentRunner:
 
                 await hook.before_execute_tools(context)
 
-                results, new_events, fatal_error = await self._execute_tools(
-                    spec,
-                    response.tool_calls,
-                    external_lookup_counts,
-                )
+                # --- Circuit breaker: pre-check for repeated failures ---
+                allowed_calls: list[ToolCallRequest] = []
+                blocked_results_map: dict[str, Any] = {}
+
+                for tool_call in response.tool_calls:
+                    sig = self._tool_call_signature(tool_call.name, tool_call.arguments)
+                    block_msg = self._check_repeated_tool_failure(sig, tool_call_history)
+                    if block_msg:
+                        blocked_results_map[tool_call.id] = block_msg
+                        logger.warning(
+                            "Circuit breaker: blocking repeated tool call '{}' (consecutive failure #{} on iteration {})",
+                            sig[:100],
+                            _MAX_REPEATED_TOOL_FAILURES,
+                            iteration,
+                        )
+                    else:
+                        allowed_calls.append(tool_call)
+
+                if allowed_calls:
+                    results, new_events, fatal_error = await self._execute_tools(
+                        spec,
+                        allowed_calls,
+                        external_lookup_counts,
+                    )
+                else:
+                    results, new_events, fatal_error = [], [], None
+
+                # Merge results in original order
+                final_results: list[Any] = []
+                for tool_call in response.tool_calls:
+                    if tool_call.id in blocked_results_map:
+                        final_results.append(blocked_results_map[tool_call.id])
+                    else:
+                        final_results.append(results.pop(0))
+
+                # Record history for next iteration's circuit breaker check
+                for i, tool_call in enumerate(response.tool_calls):
+                    sig = self._tool_call_signature(tool_call.name, tool_call.arguments)
+                    tool_call_history.append({
+                        "sig": sig,
+                        "iteration": iteration,
+                        "tool_name": tool_call.name,
+                        "success": self._tool_call_succeeded(final_results[i]),
+                        "blocked": tool_call.id in blocked_results_map,
+                    })
+                tool_call_history[:] = tool_call_history[-_TOOL_CALL_HISTORY_SIZE:]
+                # --- End circuit breaker ---
+
                 tool_events.extend(new_events)
-                context.tool_results = list(results)
+                context.tool_results = list(final_results)
                 context.tool_events = list(new_events)
                 completed_tool_results: list[dict[str, Any]] = []
-                for tool_call, result in zip(response.tool_calls, results):
+                for tool_call, result in zip(response.tool_calls, final_results):
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
@@ -912,4 +959,67 @@ class AgentRunner:
         if current:
             batches.append(current)
         return batches
+
+    @staticmethod
+    def _tool_call_signature(tool_name: str, arguments: dict[str, Any]) -> str:
+        """Generate a stable signature for a tool call, used for duplicate detection.
+
+        This is a literal-level repetition check (not semantic).
+        For example, ``exec({"command": "git clone x"})`` and
+        ``exec({"command": "git clone  x"})`` would produce different
+        signatures due to the extra space. This is sufficient for P0;
+        future work may add argument normalization for high-risk tools
+        like ``exec``.
+        """
+        args_json = json.dumps(arguments, sort_keys=True, ensure_ascii=False)
+        return f"{tool_name}:{args_json}"
+
+    @staticmethod
+    def _tool_call_succeeded(result: Any) -> bool:
+        """Conservatively determine whether a tool call succeeded.
+
+        Rules:
+        - String result not starting with ``"Error"`` → True
+        - Everything else (None, exceptions, Error-prefixed strings) → False
+
+        Consistent with ``_run_tool`` error patterns:
+        - exec failures: ``"Error: Command timed out..."``,
+          ``"Error: working_dir is outside..."``,
+          ``"Error: Command blocked by safety guard..."``
+        - _run_tool exception wrapping: ``"Error: {Type}: {msg}\\n\\n[Analyze...]"``
+        - lookup errors: ``"Error: repeated external lookup blocked..."``
+        - Normal results never start with ``"Error"`` (exec output contains
+          stdout/stderr/Exit code lines).
+        """
+        if isinstance(result, str):
+            return not result.startswith("Error")
+        return result is not None
+
+    @staticmethod
+    def _check_repeated_tool_failure(
+        current_sig: str,
+        history: list[dict[str, Any]],
+        max_consecutive: int = _MAX_REPEATED_TOOL_FAILURES,
+    ) -> str | None:
+        """Detect whether the same tool call has failed consecutively N times.
+
+        Only triggers when the most recent ``max_consecutive - 1`` history
+        entries share the same signature AND all failed. A single success
+        breaks the chain. Blocked calls are counted as failures.
+        """
+        if len(history) < max_consecutive - 1:
+            return None
+        recent = history[-(max_consecutive - 1):]
+        if all(
+            h["sig"] == current_sig and not h["success"]
+            for h in recent
+        ):
+            return (
+                f"Error: This exact tool call has been attempted "
+                f"{max_consecutive} times with identical arguments and failed each time. "
+                f"DO NOT repeat this command with unchanged arguments. "
+                f"Inspect the current state (e.g., check if the target already exists), "
+                f"choose a different approach, or report the issue to the user."
+            )
+        return None
 
