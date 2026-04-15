@@ -207,8 +207,10 @@ class TestCircuitBreakerIntegration:
         # On iteration 2, the circuit breaker blocks the call
         assert execute_spy.call_count == 2
 
-        # Only 2 tool events (the blocked call does not produce an event)
-        assert len(result.tool_events) == 2
+        # The blocked third call now records a guard event for observability.
+        assert len(result.tool_events) == 3
+        assert result.tool_events[-1]["status"] == "error"
+        assert result.tool_events[-1]["detail"] == "tool loop guard blocked"
 
     @pytest.mark.asyncio
     async def test_different_command_after_block_resumes(self):
@@ -339,8 +341,10 @@ class TestCircuitBreakerIntegration:
         # Only 2 actual executions (iteration 2 was blocked by circuit breaker)
         assert tools.execute.call_count == 2
 
-        # Only 2 tool events (blocked call does not produce an event)
-        assert len(result.tool_events) == 2
+        # The blocked third call now records a guard event for observability.
+        assert len(result.tool_events) == 3
+        assert result.tool_events[-1]["status"] == "error"
+        assert result.tool_events[-1]["detail"] == "tool loop guard blocked"
 
     @pytest.mark.asyncio
     async def test_concurrent_mixed_blocked_and_allowed(self):
