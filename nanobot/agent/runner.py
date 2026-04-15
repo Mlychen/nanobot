@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import inspect
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 from loguru import logger
@@ -47,7 +48,23 @@ _COMPACTABLE_TOOLS = frozenset({
 })
 _BACKFILL_CONTENT = "[Tool result unavailable — call was interrupted or lost]"
 _MAX_REPEATED_TOOL_FAILURES = 3
+_MAX_STALL_FAMILY_REPEATS = 6
+_MAX_STALL_SENSITIVE_CALLS_PER_TURN = 12
 _TOOL_CALL_HISTORY_SIZE = 20
+_STALL_SENSITIVE_TOOLS = frozenset({
+    "read_file", "grep", "glob", "list_dir",
+    "web_search", "web_fetch", "exec",
+})
+_PAGINATION_ARG_KEYS = frozenset({
+    "offset", "limit", "page", "cursor", "next_cursor",
+    "after", "before", "start", "end",
+})
+_COMMAND_ASSIGNMENT_PAGINATION_RE = re.compile(
+    r"(?i)\b(offset|limit|page|cursor|next_cursor|after|before|start|end)=([\"'][^\"']*[\"']|\S+)"
+)
+_COMMAND_FLAG_PAGINATION_RE = re.compile(
+    r"(?i)(--(?:offset|limit|page|cursor|next-cursor|after|before|start|end)\s+)([\"'][^\"']*[\"']|\S+)"
+)
 
 
 
@@ -240,6 +257,8 @@ class AgentRunner:
         length_recovery_count = 0
         had_injections = False
         injection_cycles = 0
+        force_finalization_retry = False
+        stall_sensitive_call_count = 0
         tool_call_history: list[dict[str, Any]] = []
 
         for iteration in range(spec.max_iterations):
@@ -270,7 +289,11 @@ class AgentRunner:
                     messages_for_model = messages
             context = AgentHookContext(iteration=iteration, messages=messages)
             await hook.before_iteration(context)
-            response = await self._request_model(spec, messages_for_model, hook, context)
+            if force_finalization_retry:
+                response = await self._request_finalization_retry(spec, messages_for_model)
+                force_finalization_retry = False
+            else:
+                response = await self._request_model(spec, messages_for_model, hook, context)
             raw_usage = self._usage_dict(response.usage)
             context.response = response
             context.usage = dict(raw_usage)
@@ -306,20 +329,39 @@ class AgentRunner:
                 # --- Circuit breaker: pre-check for repeated failures ---
                 allowed_calls: list[ToolCallRequest] = []
                 blocked_results_map: dict[str, Any] = {}
+                blocked_events: list[dict[str, str]] = []
 
                 for tool_call in response.tool_calls:
                     sig = self._tool_call_signature(tool_call.name, tool_call.arguments)
+                    family_sig = self._tool_call_family_signature(tool_call.name, tool_call.arguments)
                     block_msg = self._check_repeated_tool_failure(sig, tool_call_history)
+                    if block_msg is None:
+                        block_msg = self._check_tool_family_stall(
+                            family_sig,
+                            tool_call.name,
+                            tool_call_history,
+                        )
+                    if block_msg is None:
+                        block_msg = self._check_stall_sensitive_budget(
+                            tool_call.name,
+                            stall_sensitive_call_count + 1,
+                        )
                     if block_msg:
                         blocked_results_map[tool_call.id] = block_msg
+                        blocked_events.append({
+                            "name": tool_call.name,
+                            "status": "error",
+                            "detail": "tool loop guard blocked",
+                        })
                         logger.warning(
-                            "Circuit breaker: blocking repeated tool call '{}' (consecutive failure #{} on iteration {})",
+                            "Circuit breaker: blocking tool call '{}' on iteration {}",
                             sig[:100],
-                            _MAX_REPEATED_TOOL_FAILURES,
                             iteration,
                         )
                     else:
                         allowed_calls.append(tool_call)
+                        if self._is_stall_sensitive_tool(tool_call.name):
+                            stall_sensitive_call_count += 1
 
                 if allowed_calls:
                     results, new_events, fatal_error = await self._execute_tools(
@@ -329,6 +371,8 @@ class AgentRunner:
                     )
                 else:
                     results, new_events, fatal_error = [], [], None
+
+                new_events = blocked_events + new_events
 
                 # Merge results in original order
                 result_iter = iter(results)
@@ -342,6 +386,7 @@ class AgentRunner:
                     sig = self._tool_call_signature(tool_call.name, tool_call.arguments)
                     tool_call_history.append({
                         "sig": sig,
+                        "family_sig": self._tool_call_family_signature(tool_call.name, tool_call.arguments),
                         "iteration": iteration,
                         "tool_name": tool_call.name,
                         "success": self._tool_call_succeeded(final_results[i]),
@@ -398,6 +443,16 @@ class AgentRunner:
                 )
                 empty_content_retries = 0
                 length_recovery_count = 0
+                all_tools_guard_blocked = (
+                    len(response.tool_calls) > 0
+                    and len([
+                        event for event in new_events
+                        if event.get("detail") in {
+                            "tool loop guard blocked",
+                            "repeated external lookup blocked",
+                        }
+                    ]) == len(response.tool_calls)
+                )
                 # Checkpoint 1: drain injections after tools, before next LLM call
                 _drained, injection_cycles = await self._try_drain_injections(
                     spec, messages, None, injection_cycles,
@@ -405,6 +460,13 @@ class AgentRunner:
                 )
                 if _drained:
                     had_injections = True
+                if all_tools_guard_blocked and not _drained:
+                    logger.info(
+                        "All tool calls were blocked by guardrails on turn {} for {}; requesting final answer without more tools",
+                        iteration,
+                        spec.session_key or "default",
+                    )
+                    force_finalization_retry = True
                 await hook.after_iteration(context)
                 continue
 
@@ -1014,6 +1076,36 @@ class AgentRunner:
         return batches
 
     @staticmethod
+    def _is_stall_sensitive_tool(tool_name: str) -> bool:
+        return tool_name in _STALL_SENSITIVE_TOOLS
+
+    @classmethod
+    def _tool_call_family_signature(cls, tool_name: str, arguments: dict[str, Any]) -> str:
+        """Normalize common pagination/chunking noise for generic loop detection."""
+        normalized = cls._normalize_tool_family_value(None, arguments)
+        args_json = json.dumps(normalized, sort_keys=True, ensure_ascii=False)
+        return f"{tool_name}:{args_json}"
+
+    @classmethod
+    def _normalize_tool_family_value(cls, key: str | None, value: Any) -> Any:
+        if isinstance(value, dict):
+            items: dict[str, Any] = {}
+            for child_key in sorted(value):
+                if child_key in _PAGINATION_ARG_KEYS:
+                    continue
+                items[child_key] = cls._normalize_tool_family_value(child_key, value[child_key])
+            return items
+        if isinstance(value, list):
+            return [cls._normalize_tool_family_value(key, item) for item in value]
+        if isinstance(value, str):
+            text = " ".join(value.split())
+            if key == "command":
+                text = _COMMAND_ASSIGNMENT_PAGINATION_RE.sub(r"\1=<PAGINATION>", text)
+                text = _COMMAND_FLAG_PAGINATION_RE.sub(r"\1<PAGINATION>", text)
+            return text
+        return value
+
+    @staticmethod
     def _tool_call_signature(tool_name: str, arguments: dict[str, Any]) -> str:
         """Generate a stable signature for a tool call, used for duplicate detection.
 
@@ -1081,4 +1173,48 @@ class AgentRunner:
                 f"choose a different approach, or report the issue to the user."
             )
         return None
+
+    @classmethod
+    def _check_tool_family_stall(
+        cls,
+        current_family_sig: str,
+        tool_name: str,
+        history: list[dict[str, Any]],
+        max_consecutive: int = _MAX_STALL_FAMILY_REPEATS,
+    ) -> str | None:
+        """Detect low-progress loops where the same tool family repeats with minor variations."""
+        if not cls._is_stall_sensitive_tool(tool_name):
+            return None
+        streak = 1
+        for item in reversed(history):
+            if item.get("tool_name") != tool_name:
+                break
+            if item.get("family_sig") != current_family_sig:
+                break
+            streak += 1
+            if streak >= max_consecutive:
+                return (
+                    "Error: This tool family has been used repeatedly in this turn with only minor variations. "
+                    "Stop querying or paginating further. Use the information already gathered to answer, "
+                    "or ask the user to narrow the request."
+                )
+        return None
+
+    @classmethod
+    def _check_stall_sensitive_budget(
+        cls,
+        tool_name: str,
+        total_count: int,
+        max_total: int = _MAX_STALL_SENSITIVE_CALLS_PER_TURN,
+    ) -> str | None:
+        """Prevent large budgets from being burned on search/read loops in one turn."""
+        if not cls._is_stall_sensitive_tool(tool_name):
+            return None
+        if total_count <= max_total:
+            return None
+        return (
+            "Error: Too many file/search tool calls have already been used in this turn. "
+            "Stop querying and answer with the information already available, "
+            "or ask the user to narrow the scope."
+        )
 

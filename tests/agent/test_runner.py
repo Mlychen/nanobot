@@ -817,9 +817,10 @@ async def test_runner_blocks_repeated_external_fetches():
 
     provider = MagicMock()
     captured_final_call: list[dict] = []
+    captured_final_tools: list[object] = []
     call_count = {"n": 0}
 
-    async def chat_with_retry(*, messages, **kwargs):
+    async def chat_with_retry(*, messages, tools=None, **kwargs):
         call_count["n"] += 1
         if call_count["n"] <= 3:
             return LLMResponse(
@@ -828,6 +829,7 @@ async def test_runner_blocks_repeated_external_fetches():
                 usage={},
             )
         captured_final_call[:] = messages
+        captured_final_tools.append(tools)
         return LLMResponse(content="done", tool_calls=[], usage={})
 
     provider.chat_with_retry = chat_with_retry
@@ -851,6 +853,47 @@ async def test_runner_blocks_repeated_external_fetches():
         if msg.get("role") == "tool" and msg.get("tool_call_id") == "call_3"
     ][0]
     assert "repeated external lookup blocked" in blocked_tool_message["content"]
+    assert captured_final_tools == [None]
+
+
+def test_tool_call_family_signature_ignores_common_pagination_noise():
+    from nanobot.agent.runner import AgentRunner
+
+    sig_a = AgentRunner._tool_call_family_signature("exec", {
+        "command": 'python tool.py --path /v1/entries --query "status=unread" --query "offset=20" --query "limit=15"',
+    })
+    sig_b = AgentRunner._tool_call_family_signature("exec", {
+        "command": 'python tool.py --path /v1/entries --query "status=unread" --query "offset=80" --query "limit=15"',
+    })
+
+    assert sig_a == sig_b
+
+
+def test_tool_family_stall_detects_minor_variation_loop():
+    from nanobot.agent.runner import AgentRunner
+
+    history: list[dict[str, object]] = []
+    for offset in range(0, 50, 10):
+        history.append({
+            "sig": AgentRunner._tool_call_signature("exec", {
+                "command": f'python tool.py --path /v1/entries --query "status=unread" --query "offset={offset}"',
+            }),
+            "family_sig": AgentRunner._tool_call_family_signature("exec", {
+                "command": f'python tool.py --path /v1/entries --query "status=unread" --query "offset={offset}"',
+            }),
+            "tool_name": "exec",
+            "success": True,
+        })
+
+    blocked = AgentRunner._check_tool_family_stall(
+        AgentRunner._tool_call_family_signature("exec", {
+            "command": 'python tool.py --path /v1/entries --query "status=unread" --query "offset=60"',
+        }),
+        "exec",
+        history,
+    )
+
+    assert blocked is not None
 
 
 @pytest.mark.asyncio
